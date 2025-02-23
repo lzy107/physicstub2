@@ -71,6 +71,33 @@ static const rule_table_entry_t action_rules[] = {
     }
 };
 
+// 通用测试规则表
+static const rule_table_entry_t test_rules[] = {
+    {
+        .name = "Test Rule",
+        .trigger_addr = 0x1000,
+        .expect_value = 0xAA,
+        .type = ACTION_TYPE_CALLBACK,
+        .target_addr = 0x2000,
+        .action_value = 0x55,
+        .priority = 0,
+        .callback = test_callback
+    }
+};
+
+// 获取测试规则表
+static const rule_table_entry_t* get_test_rules(void) {
+    return test_rules;
+}
+
+// 获取测试规则数量
+static int get_test_rule_count(void) {
+    return sizeof(test_rules) / sizeof(test_rules[0]);
+}
+
+// 注册测试规则提供者
+REGISTER_RULE_PROVIDER(test, get_test_rules, get_test_rule_count);
+
 int main() {
     printf("Starting device simulator...\n");
     
@@ -274,32 +301,20 @@ int main() {
     
     printf("FPGA device tests completed successfully!\n");
     
-    // 添加动作规则
-    printf("\nAdding action rules...\n");
-    if (action_manager_add_rules_from_table(am, action_rules, 
-        sizeof(action_rules) / sizeof(action_rules[0])) != 0) {
-        printf("Failed to add action rules\n");
+    // 加载所有规则
+    printf("\nLoading action rules...\n");
+    if (action_manager_load_all_rules(am) != 0) {
+        printf("Failed to load action rules\n");
         goto cleanup;
     }
     
     // 为每个规则添加监视点
     printf("Setting up watch points...\n");
-    for (size_t i = 0; i < sizeof(action_rules) / sizeof(action_rules[0]); i++) {
-        const rule_table_entry_t* entry = &action_rules[i];
-        action_rule_t rule = {
-            .rule_id = i + 1,  // 从1开始的规则ID
-            .trigger_addr = entry->trigger_addr,
-            .expect_value = entry->expect_value,
-            .type = entry->type,
-            .target_addr = entry->target_addr,
-            .action_value = entry->action_value,
-            .priority = entry->priority,
-            .callback = entry->callback
-        };
-        
-        printf("Adding watch point for rule: %s\n", entry->name);
-        if (global_monitor_add_watch(gm, entry->trigger_addr, entry->expect_value, &rule) != 0) {
-            printf("Failed to add watch point for rule: %s\n", entry->name);
+    for (int i = 0; i < am->rule_count; i++) {
+        action_rule_t* rule = &am->rules[i];
+        printf("Adding watch point for rule ID: %d\n", rule->rule_id);
+        if (global_monitor_add_watch(gm, rule->trigger_addr, rule->expect_value, rule) != 0) {
+            printf("Failed to add watch point for rule ID: %d\n", rule->rule_id);
             goto cleanup;
         }
     }

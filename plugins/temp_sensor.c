@@ -1,12 +1,49 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
 #include "temp_sensor.h"
 #include "device_registry.h"
+#include "action_manager.h"
 
 // 注册温度传感器设备
 REGISTER_DEVICE(DEVICE_TYPE_TEMP_SENSOR, "TEMP_SENSOR", get_temp_sensor_ops);
+
+// 温度报警回调函数
+static void temp_alert_callback(void* data) {
+    if (data) {
+        printf("Temperature alert triggered! Current temperature: %.2f°C\n", 
+            (*(uint32_t*)data) * 0.0625);
+    }
+}
+
+// 温度传感器规则表
+static const rule_table_entry_t temp_sensor_rules[] = {
+    {
+        .name = "Temperature High Alert",
+        .trigger_addr = TEMP_REG,
+        .expect_value = 3000,  // 30°C
+        .type = ACTION_TYPE_CALLBACK,
+        .target_addr = 0,
+        .action_value = 0,
+        .priority = 1,
+        .callback = temp_alert_callback
+    }
+};
+
+// 获取温度传感器规则表
+static const rule_table_entry_t* get_temp_sensor_rules(void) {
+    return temp_sensor_rules;
+}
+
+// 获取温度传感器规则数量
+static int get_temp_sensor_rule_count(void) {
+    return sizeof(temp_sensor_rules) / sizeof(temp_sensor_rules[0]);
+}
+
+// 注册温度传感器规则提供者
+REGISTER_RULE_PROVIDER(temp_sensor, get_temp_sensor_rules, get_temp_sensor_rule_count);
 
 // 温度传感器内存区域配置
 static device_mem_region_t temp_regions[TEMP_REGION_COUNT] = {

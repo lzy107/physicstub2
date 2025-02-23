@@ -1,11 +1,47 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include "fpga_device.h"
 #include "device_registry.h"
+#include "action_manager.h"
 
 // 注册FPGA设备
 REGISTER_DEVICE(DEVICE_TYPE_FPGA, "FPGA", get_fpga_device_ops);
+
+// FPGA中断回调函数
+static void fpga_irq_callback(void* data) {
+    if (data) {
+        printf("FPGA interrupt triggered! IRQ status: 0x%X\n", *(uint32_t*)data);
+    }
+}
+
+// FPGA设备规则表
+static const rule_table_entry_t fpga_rules[] = {
+    {
+        .name = "FPGA IRQ Handler",
+        .trigger_addr = FPGA_IRQ_REG,
+        .expect_value = 1,
+        .type = ACTION_TYPE_CALLBACK,
+        .target_addr = 0,
+        .action_value = 0,
+        .priority = 2,
+        .callback = fpga_irq_callback
+    }
+};
+
+// 获取FPGA规则表
+static const rule_table_entry_t* get_fpga_rules(void) {
+    return fpga_rules;
+}
+
+// 获取FPGA规则数量
+static int get_fpga_rule_count(void) {
+    return sizeof(fpga_rules) / sizeof(fpga_rules[0]);
+}
+
+// 注册FPGA规则提供者
+REGISTER_RULE_PROVIDER(fpga, get_fpga_rules, get_fpga_rule_count);
 
 // FPGA设备内存区域配置
 static device_mem_region_t fpga_regions[FPGA_REGION_COUNT] = {

@@ -1,7 +1,17 @@
 // src/action_manager.c
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "action_manager.h"
+
+// 规则提供者链表节点
+typedef struct rule_provider_node {
+    const rule_provider_t* provider;
+    struct rule_provider_node* next;
+} rule_provider_node_t;
+
+// 全局规则提供者链表头
+static rule_provider_node_t* g_rule_providers = NULL;
 
 action_manager_t* action_manager_create(void) {
     action_manager_t* am = (action_manager_t*)calloc(1, sizeof(action_manager_t));
@@ -26,6 +36,42 @@ void action_manager_destroy(action_manager_t* am) {
     
     pthread_mutex_destroy(&am->mutex);
     free(am);
+}
+
+// 注册规则提供者
+void action_manager_register_provider(const rule_provider_t* provider) {
+    if (!provider) return;
+    
+    rule_provider_node_t* node = (rule_provider_node_t*)malloc(sizeof(rule_provider_node_t));
+    if (!node) return;
+    
+    node->provider = provider;
+    node->next = g_rule_providers;
+    g_rule_providers = node;
+}
+
+// 加载所有规则
+int action_manager_load_all_rules(action_manager_t* am) {
+    if (!am) return -1;
+    
+    rule_provider_node_t* curr = g_rule_providers;
+    while (curr) {
+        if (curr->provider && curr->provider->get_rules && curr->provider->get_rule_count) {
+            const rule_table_entry_t* rules = curr->provider->get_rules();
+            int count = curr->provider->get_rule_count();
+            
+            if (rules && count > 0) {
+                printf("Loading rules from provider: %s\n", curr->provider->provider_name);
+                if (action_manager_add_rules_from_table(am, rules, count) != 0) {
+                    printf("Failed to load rules from provider: %s\n", curr->provider->provider_name);
+                    return -1;
+                }
+            }
+        }
+        curr = curr->next;
+    }
+    
+    return 0;
 }
 
 // 从规则表批量添加规则
