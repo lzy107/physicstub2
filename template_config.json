@@ -1,0 +1,13 @@
+{
+  "description": "A well-structured C project template using Make build system. Features organized source and header file separation, standardized build configuration, and proper dependency management. Includes Makefile for automated compilation, linking, and testing.",
+  "required_fields": [],
+  "required_files": [
+    "src/main.c",
+    "include/",
+    "Makefile"
+  ],
+  "lang": "C",
+  "framework": "C",
+  "style": "c_template",
+  "scene": "default_c_project"
+} 
