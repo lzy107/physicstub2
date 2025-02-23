@@ -3,6 +3,7 @@
 #define FLASH_DEVICE_H
 
 #include <stdint.h>
+#include <pthread.h>
 #include "device_types.h"
 
 // FLASH设备特有参数
@@ -35,5 +36,8 @@ typedef struct {
 // 插件导出函数
 const char* get_plugin_name(void);
 device_ops_t* get_device_ops(void);
+
+// 获取FLASH设备操作接口
+device_ops_t* get_flash_device_ops(void);
 
 #endif

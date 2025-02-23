@@ -19,13 +19,8 @@ static device_ops_t flash_ops = {
     .destroy = flash_destroy
 };
 
-// 获取插件名称
-const char* get_plugin_name(void) {
-    return "flash_device";
-}
-
-// 获取设备操作接口
-device_ops_t* get_device_ops(void) {
+// 获取FLASH设备操作接口
+device_ops_t* get_flash_device_ops(void) {
     return &flash_ops;
 }
 

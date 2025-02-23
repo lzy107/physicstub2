@@ -4,7 +4,6 @@
 #include "device_types.h"
 #include "global_monitor.h"
 #include "action_manager.h"
-#include "plugin_system.h"
 #include "../plugins/flash_device.h"
 
 // 测试用的回调函数
@@ -41,23 +40,8 @@ int main() {
         return -1;
     }
     
-    plugin_loader_t* pl = plugin_loader_create();
-    if (!pl) {
-        printf("Failed to create plugin loader\n");
-        global_monitor_destroy(gm);
-        action_manager_destroy(am);
-        device_manager_destroy(dm);
-        return -1;
-    }
-    
-    // 加载FLASH插件
-    if (plugin_load(pl, "build/plugins/libflash_device.so") != 0) {
-        printf("Failed to load FLASH plugin\n");
-        goto cleanup;
-    }
-    
     // 获取FLASH设备操作接口
-    device_ops_t* flash_ops = plugin_get_ops(pl, "flash_device");
+    device_ops_t* flash_ops = get_flash_device_ops();
     if (!flash_ops) {
         printf("Failed to get FLASH device ops\n");
         goto cleanup;
@@ -114,11 +98,6 @@ int main() {
     
     printf("FLASH device tests completed successfully!\n");
     
-    if (!dm || !am || !gm || !pl) {
-        printf("Failed to initialize subsystems\n");
-        goto cleanup;
-    }
-    
     // 创建测试规则
     action_rule_t* rule = action_rule_create(0x1000, 0xAA, 
         ACTION_TYPE_CALLBACK, 0x2000, 0x55);
@@ -155,7 +134,6 @@ cleanup:
     // 清理资源
     printf("Cleaning up resources...\n");
     
-    // 按照依赖关系的相反顺序清理资源
     if (gm) {
         printf("Destroying global monitor...\n");
         global_monitor_destroy(gm);
@@ -175,13 +153,6 @@ cleanup:
         device_manager_destroy(dm);
         printf("Device manager destroyed.\n");
         dm = NULL;
-    }
-    
-    if (pl) {
-        printf("Destroying plugin loader...\n");
-        plugin_loader_destroy(pl);
-        printf("Plugin loader destroyed.\n");
-        pl = NULL;
     }
     
     printf("Cleanup completed.\n");
