@@ -3,6 +3,7 @@
 #include "device_registry.h"
 #include "../plugins/flash_device.h"
 #include "../plugins/temp_sensor.h"
+#include "../plugins/fpga_device.h"
 
 // 设备注册表
 static const device_register_info_t device_registry[] = {
@@ -15,6 +16,11 @@ static const device_register_info_t device_registry[] = {
         .type_id = DEVICE_TYPE_TEMP_SENSOR,
         .name = "TEMP_SENSOR",
         .get_ops = get_temp_sensor_ops
+    },
+    {
+        .type_id = DEVICE_TYPE_FPGA,
+        .name = "FPGA",
+        .get_ops = get_fpga_device_ops
     }
     // 在这里添加更多设备类型
 };

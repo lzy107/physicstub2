@@ -8,6 +8,7 @@
 #include "device_registry.h"
 #include "../plugins/flash_device.h"
 #include "../plugins/temp_sensor.h"
+#include "../plugins/fpga_device.h"
 
 // 测试用的回调函数
 static void test_callback(void* data) {
@@ -142,6 +143,84 @@ int main() {
     }
     
     printf("Temperature sensor tests completed successfully!\n");
+    
+    // 测试FPGA设备
+    printf("\nTesting FPGA device...\n");
+    device_instance_t* fpga = device_create(dm, DEVICE_TYPE_FPGA, 1);
+    if (!fpga) {
+        printf("Failed to create FPGA device\n");
+        goto cleanup;
+    }
+    
+    device_ops_t fpga_ops = dm->types[DEVICE_TYPE_FPGA].ops;
+    
+    // 使能FPGA
+    printf("Enabling FPGA...\n");
+    if (fpga_ops.write && fpga_ops.write(fpga, FPGA_CONFIG_REG, CONFIG_ENABLE | CONFIG_IRQ_EN) != 0) {
+        printf("Failed to enable FPGA\n");
+        goto cleanup;
+    }
+    
+    // 读取状态寄存器
+    printf("Reading FPGA status...\n");
+    if (fpga_ops.read && fpga_ops.read(fpga, FPGA_STATUS_REG, &value) == 0) {
+        printf("FPGA status: 0x%08X\n", value);
+    } else {
+        printf("Failed to read FPGA status\n");
+        goto cleanup;
+    }
+    
+    // 写入数据
+    printf("Writing data to FPGA memory...\n");
+    for (int i = 0; i < 10; i++) {
+        if (fpga_ops.write && fpga_ops.write(fpga, FPGA_DATA_START + i, i + 1) != 0) {
+            printf("Failed to write data\n");
+            goto cleanup;
+        }
+    }
+    
+    // 读取数据
+    printf("Reading back data from FPGA memory...\n");
+    for (int i = 0; i < 10; i++) {
+        if (fpga_ops.read && fpga_ops.read(fpga, FPGA_DATA_START + i, &value) == 0) {
+            printf("Data[%d] = 0x%02X\n", i, value);
+        } else {
+            printf("Failed to read data\n");
+            goto cleanup;
+        }
+    }
+    
+    // 启动FPGA操作
+    printf("Starting FPGA operation...\n");
+    if (fpga_ops.write && fpga_ops.write(fpga, FPGA_CONTROL_REG, CTRL_START) != 0) {
+        printf("Failed to start FPGA operation\n");
+        goto cleanup;
+    }
+    
+    // 等待操作完成
+    printf("Waiting for operation to complete...\n");
+    int timeout = 10;  // 最多等待1秒
+    do {
+        if (fpga_ops.read && fpga_ops.read(fpga, FPGA_STATUS_REG, &value) != 0) {
+            printf("Failed to read status\n");
+            goto cleanup;
+        }
+        if (value & STATUS_DONE) break;
+        usleep(100000);  // 等待100ms
+    } while (--timeout > 0);
+    
+    if (timeout > 0) {
+        printf("FPGA operation completed successfully\n");
+    } else {
+        printf("FPGA operation timed out\n");
+    }
+    
+    // 检查中断状态
+    if (fpga_ops.read && fpga_ops.read(fpga, FPGA_IRQ_REG, &value) == 0) {
+        printf("IRQ status: 0x%08X\n", value);
+    }
+    
+    printf("FPGA device tests completed successfully!\n");
     
     // 创建测试规则
     action_rule_t* rule = action_rule_create(0x1000, 0xAA, 
