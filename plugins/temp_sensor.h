@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <pthread.h>
 #include "device_types.h"
+#include "device_memory.h"
 
 // 设备类型ID
 #define DEVICE_TYPE_TEMP_SENSOR 1
@@ -22,16 +23,16 @@
 #define CONFIG_RES     (3 << 5)    // 转换分辨率
 #define CONFIG_ONESHOT (1 << 7)    // 单次转换
 
+// 温度传感器内存区域配置
+#define TEMP_REG_REGION    0  // 寄存器区域索引
+#define TEMP_REGION_COUNT  1  // 内存区域总数
+
 // 温度传感器私有数据结构
 typedef struct {
-    int16_t temp_reg;            // 温度寄存器 (13位有符号)
-    uint8_t config_reg;          // 配置寄存器
-    int16_t tlow_reg;           // 低温报警阈值
-    int16_t thigh_reg;          // 高温报警阈值
-    uint8_t alert_status;       // 报警状态
-    pthread_mutex_t mutex;      // 互斥锁
-    pthread_t update_thread;    // 温度更新线程
-    int running;                // 线程运行标志
+    device_mem_config_t mem_config;   // 内存配置
+    pthread_mutex_t mutex;            // 互斥锁
+    pthread_t update_thread;          // 温度更新线程
+    int running;                      // 线程运行标志
 } temp_sensor_data_t;
 
 // 获取温度传感器操作接口

@@ -3,6 +3,24 @@
 #include <string.h>
 #include "flash_device.h"
 
+// FLASH设备内存区域配置
+static device_mem_region_t flash_regions[FLASH_REGION_COUNT] = {
+    // 寄存器区域
+    {
+        .start_addr = FLASH_STATUS_REG,
+        .unit_size = sizeof(uint8_t),
+        .unit_count = 2,  // 2个8位寄存器
+        .mem_ptr = NULL
+    },
+    // 数据区域
+    {
+        .start_addr = FLASH_DATA_START,
+        .unit_size = sizeof(uint8_t),
+        .unit_count = FLASH_TOTAL_SIZE,  // 64KB数据区
+        .mem_ptr = NULL
+    }
+};
+
 // 私有函数声明
 static int flash_init(device_instance_t* instance);
 static int flash_read(device_instance_t* instance, uint32_t addr, uint32_t* value);
@@ -32,17 +50,22 @@ static int flash_init(device_instance_t* instance) {
     flash_dev_data_t* dev_data = (flash_dev_data_t*)calloc(1, sizeof(flash_dev_data_t));
     if (!dev_data) return -1;
     
-    // 分配FLASH存储空间
-    dev_data->memory = (uint8_t*)calloc(FLASH_TOTAL_SIZE, sizeof(uint8_t));
-    if (!dev_data->memory) {
+    // 初始化内存配置
+    dev_data->mem_config.regions = flash_regions;
+    dev_data->mem_config.region_count = FLASH_REGION_COUNT;
+    
+    // 初始化设备内存
+    if (device_mem_init(&dev_data->mem_config) != 0) {
         free(dev_data);
         return -1;
     }
     
-    // 初始化互斥锁和寄存器
+    // 初始化互斥锁
     pthread_mutex_init(&dev_data->mutex, NULL);
-    dev_data->status_reg = 0;
-    dev_data->ctrl_reg = 0;
+    
+    // 初始化所有数据为0xFF（FLASH擦除状态）
+    uint8_t* data_region = (uint8_t*)dev_data->mem_config.regions[FLASH_DATA_REGION].mem_ptr;
+    memset(data_region, 0xFF, FLASH_TOTAL_SIZE);
     
     instance->private_data = dev_data;
     return 0;
@@ -56,26 +79,14 @@ static int flash_read(device_instance_t* instance, uint32_t addr, uint32_t* valu
     if (!dev_data) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
-    
-    // 读取寄存器
-    if (addr == FLASH_STATUS_REG) {
-        *value = dev_data->status_reg;
+    uint8_t reg_value;
+    int ret = device_mem_read(&dev_data->mem_config, addr, &reg_value, sizeof(reg_value));
+    if (ret == 0) {
+        *value = reg_value;
     }
-    else if (addr == FLASH_CTRL_REG) {
-        *value = dev_data->ctrl_reg;
-    }
-    // 读取数据区
-    else if (addr >= FLASH_DATA_START && addr < FLASH_TOTAL_SIZE) {
-        uint32_t offset = addr - FLASH_DATA_START;
-        *value = dev_data->memory[offset];
-    }
-    else {
-        pthread_mutex_unlock(&dev_data->mutex);
-        return -1;
-    }
-    
     pthread_mutex_unlock(&dev_data->mutex);
-    return 0;
+    
+    return ret;
 }
 
 // 写入FLASH数据或寄存器
@@ -87,44 +98,52 @@ static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t valu
     
     pthread_mutex_lock(&dev_data->mutex);
     
-    // 检查设备是否忙
-    if (dev_data->status_reg & STATUS_BUSY) {
+    int ret = -1;
+    uint8_t status;
+    
+    // 读取状态寄存器
+    if (device_mem_read(&dev_data->mem_config, FLASH_STATUS_REG, &status, sizeof(status)) != 0) {
         pthread_mutex_unlock(&dev_data->mutex);
         return -1;
     }
+    
+    // 检查设备是否忙
+    if (status & STATUS_BUSY) {
+        pthread_mutex_unlock(&dev_data->mutex);
+        return -1;
+    }
+    
+    uint8_t reg_value = (uint8_t)value;
     
     // 写入寄存器
     if (addr == FLASH_STATUS_REG) {
         // 状态寄存器写保护检查
-        if (!(dev_data->status_reg & STATUS_SRWD)) {
-            dev_data->status_reg = value & 0xFF;
+        if (!(status & STATUS_SRWD)) {
+            ret = device_mem_write(&dev_data->mem_config, addr, &reg_value, sizeof(reg_value));
         }
     }
     else if (addr == FLASH_CTRL_REG) {
-        dev_data->ctrl_reg = value & 0xFF;
+        ret = device_mem_write(&dev_data->mem_config, addr, &reg_value, sizeof(reg_value));
     }
     // 写入数据区
-    else if (addr >= FLASH_DATA_START && addr < FLASH_TOTAL_SIZE) {
+    else if (addr >= FLASH_DATA_START && addr < (FLASH_DATA_START + FLASH_TOTAL_SIZE)) {
         // 检查写使能
-        if (!(dev_data->status_reg & STATUS_WEL)) {
-            pthread_mutex_unlock(&dev_data->mutex);
-            return -1;
+        if (status & STATUS_WEL) {
+            // 模拟FLASH只能将1改为0的特性
+            uint8_t old_value;
+            if (device_mem_read(&dev_data->mem_config, addr, &old_value, sizeof(old_value)) == 0) {
+                reg_value &= old_value;  // 只能将1改为0
+                ret = device_mem_write(&dev_data->mem_config, addr, &reg_value, sizeof(reg_value));
+                
+                // 清除写使能
+                status &= ~STATUS_WEL;
+                device_mem_write(&dev_data->mem_config, FLASH_STATUS_REG, &status, sizeof(status));
+            }
         }
-        
-        uint32_t offset = addr - FLASH_DATA_START;
-        // 模拟FLASH只能将1改为0的特性
-        dev_data->memory[offset] &= (uint8_t)value;
-        
-        // 清除写使能
-        dev_data->status_reg &= ~STATUS_WEL;
-    }
-    else {
-        pthread_mutex_unlock(&dev_data->mutex);
-        return -1;
     }
     
     pthread_mutex_unlock(&dev_data->mutex);
-    return 0;
+    return ret;
 }
 
 // 复位FLASH设备
@@ -134,16 +153,16 @@ static void flash_reset(device_instance_t* instance) {
     flash_dev_data_t* dev_data = (flash_dev_data_t*)instance->private_data;
     if (!dev_data) return;
     
-    pthread_mutex_lock(&dev_data->mutex);
+    // 复位时不需要获取互斥锁，因为调用者已经持有锁
     
     // 清除所有寄存器
-    dev_data->status_reg = 0;
-    dev_data->ctrl_reg = 0;
+    uint8_t zero = 0;
+    device_mem_write(&dev_data->mem_config, FLASH_STATUS_REG, &zero, sizeof(zero));
+    device_mem_write(&dev_data->mem_config, FLASH_CTRL_REG, &zero, sizeof(zero));
     
-    // 清除所有数据(设为0xFF)
-    memset(dev_data->memory, 0xFF, FLASH_TOTAL_SIZE);
-    
-    pthread_mutex_unlock(&dev_data->mutex);
+    // 将所有数据恢复为0xFF（FLASH擦除状态）
+    uint8_t* data_region = (uint8_t*)dev_data->mem_config.regions[FLASH_DATA_REGION].mem_ptr;
+    memset(data_region, 0xFF, FLASH_TOTAL_SIZE);
 }
 
 // 销毁FLASH设备
@@ -153,20 +172,13 @@ static void flash_destroy(device_instance_t* instance) {
     flash_dev_data_t* dev_data = (flash_dev_data_t*)instance->private_data;
     if (!dev_data) return;
     
-    // 先获取锁，确保没有其他线程在使用设备
-    pthread_mutex_lock(&dev_data->mutex);
-    
-    // 清理内存
-    if (dev_data->memory) {
-        free(dev_data->memory);
-        dev_data->memory = NULL;
-    }
-    
-    // 释放锁并销毁它
-    pthread_mutex_unlock(&dev_data->mutex);
+    // 销毁互斥锁
     pthread_mutex_destroy(&dev_data->mutex);
     
-    // 最后释放设备数据
+    // 释放设备内存
+    device_mem_destroy(&dev_data->mem_config);
+    
+    // 释放设备数据
     free(dev_data);
     instance->private_data = NULL;
 }

@@ -4,6 +4,17 @@
 #include <time.h>
 #include "temp_sensor.h"
 
+// 温度传感器内存区域配置
+static device_mem_region_t temp_regions[TEMP_REGION_COUNT] = {
+    // 寄存器区域（4个16位寄存器）
+    {
+        .start_addr = TEMP_REG,
+        .unit_size = sizeof(uint16_t),
+        .unit_count = 4,
+        .mem_ptr = NULL
+    }
+};
+
 // 私有函数声明
 static int temp_sensor_init(device_instance_t* instance);
 static int temp_sensor_read(device_instance_t* instance, uint32_t addr, uint32_t* value);
@@ -29,24 +40,32 @@ device_ops_t* get_temp_sensor_ops(void) {
 static void* temp_update_thread(void* arg) {
     device_instance_t* instance = (device_instance_t*)arg;
     temp_sensor_data_t* dev_data = (temp_sensor_data_t*)instance->private_data;
+    uint16_t value;
     
     while (dev_data->running) {
         pthread_mutex_lock(&dev_data->mutex);
         
-        // 如果不在关断模式
-        if (!(dev_data->config_reg & CONFIG_SHUTDOWN)) {
-            // 模拟温度变化（在20-30度之间随机波动）
-            int temp = 2000 + (rand() % 1000);  // 0.0625°C/bit
-            dev_data->temp_reg = temp;
-            
-            // 检查报警条件
-            if (dev_data->config_reg & CONFIG_ALERT) {
-                if (temp >= dev_data->thigh_reg) {
-                    dev_data->alert_status = 1;
-                } else if (temp <= dev_data->tlow_reg) {
-                    dev_data->alert_status = 1;
-                } else {
-                    dev_data->alert_status = 0;
+        // 读取配置寄存器
+        if (device_mem_read(&dev_data->mem_config, CONFIG_REG, &value, sizeof(value)) == 0) {
+            // 如果不在关断模式
+            if (!(value & CONFIG_SHUTDOWN)) {
+                // 模拟温度变化（在20-30度之间随机波动）
+                int16_t temp = 2000 + (rand() % 1000);  // 0.0625°C/bit
+                device_mem_write(&dev_data->mem_config, TEMP_REG, &temp, sizeof(temp));
+                
+                // 检查报警条件
+                if (value & CONFIG_ALERT) {
+                    int16_t tlow, thigh;
+                    if (device_mem_read(&dev_data->mem_config, TLOW_REG, &tlow, sizeof(tlow)) == 0 &&
+                        device_mem_read(&dev_data->mem_config, THIGH_REG, &thigh, sizeof(thigh)) == 0) {
+                        // 更新报警状态
+                        if (temp >= thigh || temp <= tlow) {
+                            value |= (1 << 15);  // 设置报警位
+                        } else {
+                            value &= ~(1 << 15);  // 清除报警位
+                        }
+                        device_mem_write(&dev_data->mem_config, CONFIG_REG, &value, sizeof(value));
+                    }
                 }
             }
         }
@@ -66,17 +85,34 @@ static int temp_sensor_init(device_instance_t* instance) {
     temp_sensor_data_t* dev_data = (temp_sensor_data_t*)calloc(1, sizeof(temp_sensor_data_t));
     if (!dev_data) return -1;
     
-    // 初始化互斥锁和数据
+    // 初始化内存配置
+    dev_data->mem_config.regions = temp_regions;
+    dev_data->mem_config.region_count = TEMP_REGION_COUNT;
+    
+    // 初始化设备内存
+    if (device_mem_init(&dev_data->mem_config) != 0) {
+        free(dev_data);
+        return -1;
+    }
+    
+    // 初始化互斥锁
     pthread_mutex_init(&dev_data->mutex, NULL);
-    dev_data->temp_reg = 2500;    // 25°C
-    dev_data->config_reg = 0;     // 正常模式
-    dev_data->tlow_reg = 1800;    // 18°C
-    dev_data->thigh_reg = 3000;   // 30°C
-    dev_data->alert_status = 0;
     dev_data->running = 1;
+    
+    // 设置初始值
+    int16_t temp = 2500;    // 25°C
+    int16_t tlow = 1800;    // 18°C
+    int16_t thigh = 3000;   // 30°C
+    uint16_t config = 0;     // 正常模式
+    
+    device_mem_write(&dev_data->mem_config, TEMP_REG, &temp, sizeof(temp));
+    device_mem_write(&dev_data->mem_config, TLOW_REG, &tlow, sizeof(tlow));
+    device_mem_write(&dev_data->mem_config, THIGH_REG, &thigh, sizeof(thigh));
+    device_mem_write(&dev_data->mem_config, CONFIG_REG, &config, sizeof(config));
     
     // 启动温度更新线程
     if (pthread_create(&dev_data->update_thread, NULL, temp_update_thread, instance) != 0) {
+        device_mem_destroy(&dev_data->mem_config);
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);
         return -1;
@@ -94,27 +130,14 @@ static int temp_sensor_read(device_instance_t* instance, uint32_t addr, uint32_t
     if (!dev_data) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
-    
-    switch (addr) {
-        case TEMP_REG:
-            *value = dev_data->temp_reg;
-            break;
-        case CONFIG_REG:
-            *value = dev_data->config_reg;
-            break;
-        case TLOW_REG:
-            *value = dev_data->tlow_reg;
-            break;
-        case THIGH_REG:
-            *value = dev_data->thigh_reg;
-            break;
-        default:
-            pthread_mutex_unlock(&dev_data->mutex);
-            return -1;
+    uint16_t reg_value;
+    int ret = device_mem_read(&dev_data->mem_config, addr, &reg_value, sizeof(reg_value));
+    if (ret == 0) {
+        *value = reg_value;
     }
-    
     pthread_mutex_unlock(&dev_data->mutex);
-    return 0;
+    
+    return ret;
 }
 
 // 写入温度传感器寄存器
@@ -125,24 +148,11 @@ static int temp_sensor_write(device_instance_t* instance, uint32_t addr, uint32_
     if (!dev_data) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
-    
-    switch (addr) {
-        case CONFIG_REG:
-            dev_data->config_reg = value & 0xFF;
-            break;
-        case TLOW_REG:
-            dev_data->tlow_reg = value & 0xFFFF;
-            break;
-        case THIGH_REG:
-            dev_data->thigh_reg = value & 0xFFFF;
-            break;
-        default:
-            pthread_mutex_unlock(&dev_data->mutex);
-            return -1;
-    }
-    
+    uint16_t reg_value = (uint16_t)value;
+    int ret = device_mem_write(&dev_data->mem_config, addr, &reg_value, sizeof(reg_value));
     pthread_mutex_unlock(&dev_data->mutex);
-    return 0;
+    
+    return ret;
 }
 
 // 复位温度传感器
@@ -152,15 +162,18 @@ static void temp_sensor_reset(device_instance_t* instance) {
     temp_sensor_data_t* dev_data = (temp_sensor_data_t*)instance->private_data;
     if (!dev_data) return;
     
-    pthread_mutex_lock(&dev_data->mutex);
+    // 复位时不需要获取互斥锁，因为调用者已经持有锁
     
-    dev_data->temp_reg = 2500;    // 25°C
-    dev_data->config_reg = 0;     // 正常模式
-    dev_data->tlow_reg = 1800;    // 18°C
-    dev_data->thigh_reg = 3000;   // 30°C
-    dev_data->alert_status = 0;
+    // 复位所有寄存器到默认值
+    int16_t temp = 2500;    // 25°C
+    int16_t tlow = 1800;    // 18°C
+    int16_t thigh = 3000;   // 30°C
+    uint16_t config = 0;     // 正常模式
     
-    pthread_mutex_unlock(&dev_data->mutex);
+    device_mem_write(&dev_data->mem_config, TEMP_REG, &temp, sizeof(temp));
+    device_mem_write(&dev_data->mem_config, TLOW_REG, &tlow, sizeof(tlow));
+    device_mem_write(&dev_data->mem_config, THIGH_REG, &thigh, sizeof(thigh));
+    device_mem_write(&dev_data->mem_config, CONFIG_REG, &config, sizeof(config));
 }
 
 // 销毁温度传感器
@@ -176,6 +189,9 @@ static void temp_sensor_destroy(device_instance_t* instance) {
     
     // 销毁互斥锁
     pthread_mutex_destroy(&dev_data->mutex);
+    
+    // 释放设备内存
+    device_mem_destroy(&dev_data->mem_config);
     
     // 释放设备数据
     free(dev_data);

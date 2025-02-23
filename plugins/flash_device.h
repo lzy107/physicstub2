@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <pthread.h>
 #include "device_types.h"
+#include "device_memory.h"
 
 // FLASH设备特有参数
 #define FLASH_PAGE_SIZE       256     // 页大小(字节)
@@ -25,12 +26,15 @@
 #define STATUS_TB          (1 << 5)   // 顶部/底部保护
 #define STATUS_SRWD        (1 << 7)   // 状态寄存器写禁止
 
+// FLASH设备内存区域配置
+#define FLASH_REG_REGION    0  // 寄存器区域索引
+#define FLASH_DATA_REGION   1  // 数据区域索引
+#define FLASH_REGION_COUNT  2  // 内存区域总数
+
 // FLASH设备私有数据结构
 typedef struct {
-    uint8_t* memory;              // 存储空间
-    uint8_t status_reg;           // 状态寄存器
-    uint8_t ctrl_reg;             // 控制寄存器
-    pthread_mutex_t mutex;        // 操作互斥锁
+    device_mem_config_t mem_config;   // 内存配置
+    pthread_mutex_t mutex;            // 操作互斥锁
 } flash_dev_data_t;
 
 // 插件导出函数
