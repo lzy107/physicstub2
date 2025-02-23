@@ -2,6 +2,7 @@
 #include <string.h>
 #include "device_registry.h"
 #include "../plugins/flash_device.h"
+#include "../plugins/temp_sensor.h"
 
 // 设备注册表
 static const device_register_info_t device_registry[] = {
@@ -10,6 +11,11 @@ static const device_register_info_t device_registry[] = {
         .name = "FLASH",
         .get_ops = get_flash_device_ops
     },
+    {
+        .type_id = DEVICE_TYPE_TEMP_SENSOR,
+        .name = "TEMP_SENSOR",
+        .get_ops = get_temp_sensor_ops
+    }
     // 在这里添加更多设备类型
 };
 

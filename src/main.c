@@ -1,11 +1,13 @@
 // src/main.c
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "device_types.h"
 #include "global_monitor.h"
 #include "action_manager.h"
 #include "device_registry.h"
 #include "../plugins/flash_device.h"
+#include "../plugins/temp_sensor.h"
 
 // 测试用的回调函数
 static void test_callback(void* data) {
@@ -54,18 +56,24 @@ int main() {
         goto cleanup;
     }
     
-    printf("Testing FLASH device...\n");
+    // 创建温度传感器实例
+    device_instance_t* temp_sensor = device_create(dm, DEVICE_TYPE_TEMP_SENSOR, 1);
+    if (!temp_sensor) {
+        printf("Failed to create temperature sensor\n");
+        goto cleanup;
+    }
     
-    printf("Testing FLASH device basic operations...\n");
+    printf("Testing devices...\n");
     
-    // 测试FLASH设备基本操作
+    // 测试FLASH设备
+    printf("\nTesting FLASH device basic operations...\n");
     uint32_t value = 0;
     
     // 写入状态寄存器（使能写操作）
     printf("Setting write enable...\n");
-    device_ops_t ops = dm->types[DEVICE_TYPE_FLASH].ops;
-    if (ops.write) {
-        if (ops.write(flash, FLASH_STATUS_REG, STATUS_WEL) != 0) {
+    device_ops_t flash_ops = dm->types[DEVICE_TYPE_FLASH].ops;
+    if (flash_ops.write) {
+        if (flash_ops.write(flash, FLASH_STATUS_REG, STATUS_WEL) != 0) {
             printf("Failed to enable write\n");
             goto cleanup;
         }
@@ -76,14 +84,14 @@ int main() {
     
     // 写入数据
     printf("Writing data 0x55 to address 0x%04X...\n", FLASH_DATA_START);
-    if (ops.write && ops.write(flash, FLASH_DATA_START, 0x55) != 0) {
+    if (flash_ops.write && flash_ops.write(flash, FLASH_DATA_START, 0x55) != 0) {
         printf("Failed to write data\n");
         goto cleanup;
     }
     
     // 读取数据
     printf("Reading data from address 0x%04X...\n", FLASH_DATA_START);
-    if (ops.read && ops.read(flash, FLASH_DATA_START, &value) == 0) {
+    if (flash_ops.read && flash_ops.read(flash, FLASH_DATA_START, &value) == 0) {
         printf("Read data: 0x%02X\n", value);
     } else {
         printf("Failed to read data\n");
@@ -91,6 +99,49 @@ int main() {
     }
     
     printf("FLASH device tests completed successfully!\n");
+    
+    // 测试温度传感器
+    printf("\nTesting temperature sensor...\n");
+    device_ops_t temp_ops = dm->types[DEVICE_TYPE_TEMP_SENSOR].ops;
+    
+    // 读取当前温度
+    if (temp_ops.read && temp_ops.read(temp_sensor, TEMP_REG, &value) == 0) {
+        printf("Current temperature: %.4f°C\n", value * 0.0625);
+    } else {
+        printf("Failed to read temperature\n");
+        goto cleanup;
+    }
+    
+    // 配置温度报警
+    printf("Configuring temperature alerts...\n");
+    if (temp_ops.write && temp_ops.write(temp_sensor, CONFIG_REG, CONFIG_ALERT) != 0) {
+        printf("Failed to configure alerts\n");
+        goto cleanup;
+    }
+    
+    // 设置温度阈值
+    if (temp_ops.write && temp_ops.write(temp_sensor, TLOW_REG, 2000) != 0) {  // 20°C
+        printf("Failed to set low temperature threshold\n");
+        goto cleanup;
+    }
+    
+    if (temp_ops.write && temp_ops.write(temp_sensor, THIGH_REG, 2800) != 0) {  // 28°C
+        printf("Failed to set high temperature threshold\n");
+        goto cleanup;
+    }
+    
+    printf("Temperature sensor configured successfully!\n");
+    
+    // 监控温度变化
+    printf("\nMonitoring temperature for 3 seconds...\n");
+    for (int i = 0; i < 3; i++) {
+        if (temp_ops.read && temp_ops.read(temp_sensor, TEMP_REG, &value) == 0) {
+            printf("Temperature: %.4f°C\n", value * 0.0625);
+        }
+        sleep(1);
+    }
+    
+    printf("Temperature sensor tests completed successfully!\n");
     
     // 创建测试规则
     action_rule_t* rule = action_rule_create(0x1000, 0xAA, 
@@ -101,7 +152,7 @@ int main() {
     }
     
     rule->callback = test_callback;
-    printf("Adding rule to action manager...\n");
+    printf("\nAdding rule to action manager...\n");
     if (action_manager_add_rule(am, rule) != 0) {
         printf("Failed to add rule to action manager\n");
         free(rule);
@@ -126,7 +177,7 @@ int main() {
     
 cleanup:
     // 清理资源
-    printf("Cleaning up resources...\n");
+    printf("\nCleaning up resources...\n");
     
     if (gm) {
         printf("Destroying global monitor...\n");
