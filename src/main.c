@@ -19,6 +19,58 @@ static void test_callback(void* data) {
     }
 }
 
+// 温度报警回调函数
+static void temp_alert_callback(void* data) {
+    if (data) {
+        printf("Temperature alert triggered! Current temperature: %.2f°C\n", 
+            (*(uint32_t*)data) * 0.0625);
+    }
+}
+
+// FPGA中断回调函数
+static void fpga_irq_callback(void* data) {
+    if (data) {
+        printf("FPGA interrupt triggered! IRQ status: 0x%X\n", *(uint32_t*)data);
+    }
+}
+
+// 定义动作规则表
+static const rule_table_entry_t action_rules[] = {
+    // 温度传感器报警规则
+    {
+        .name = "Temperature High Alert",
+        .trigger_addr = TEMP_REG,
+        .expect_value = 3000,  // 30°C
+        .type = ACTION_TYPE_CALLBACK,
+        .target_addr = 0,
+        .action_value = 0,
+        .priority = 1,
+        .callback = temp_alert_callback
+    },
+    // FPGA中断规则
+    {
+        .name = "FPGA IRQ Handler",
+        .trigger_addr = FPGA_IRQ_REG,
+        .expect_value = 1,
+        .type = ACTION_TYPE_CALLBACK,
+        .target_addr = 0,
+        .action_value = 0,
+        .priority = 2,
+        .callback = fpga_irq_callback
+    },
+    // 测试规则
+    {
+        .name = "Test Rule",
+        .trigger_addr = 0x1000,
+        .expect_value = 0xAA,
+        .type = ACTION_TYPE_CALLBACK,
+        .target_addr = 0x2000,
+        .action_value = 0x55,
+        .priority = 0,
+        .callback = test_callback
+    }
+};
+
 int main() {
     printf("Starting device simulator...\n");
     
@@ -222,34 +274,49 @@ int main() {
     
     printf("FPGA device tests completed successfully!\n");
     
-    // 创建测试规则
-    action_rule_t* rule = action_rule_create(0x1000, 0xAA, 
-        ACTION_TYPE_CALLBACK, 0x2000, 0x55);
-    if (!rule) {
-        printf("Failed to create action rule\n");
+    // 添加动作规则
+    printf("\nAdding action rules...\n");
+    if (action_manager_add_rules_from_table(am, action_rules, 
+        sizeof(action_rules) / sizeof(action_rules[0])) != 0) {
+        printf("Failed to add action rules\n");
         goto cleanup;
     }
     
-    rule->callback = test_callback;
-    printf("\nAdding rule to action manager...\n");
-    if (action_manager_add_rule(am, rule) != 0) {
-        printf("Failed to add rule to action manager\n");
-        free(rule);
-        goto cleanup;
+    // 为每个规则添加监视点
+    printf("Setting up watch points...\n");
+    for (size_t i = 0; i < sizeof(action_rules) / sizeof(action_rules[0]); i++) {
+        const rule_table_entry_t* entry = &action_rules[i];
+        action_rule_t rule = {
+            .rule_id = i + 1,  // 从1开始的规则ID
+            .trigger_addr = entry->trigger_addr,
+            .expect_value = entry->expect_value,
+            .type = entry->type,
+            .target_addr = entry->target_addr,
+            .action_value = entry->action_value,
+            .priority = entry->priority,
+            .callback = entry->callback
+        };
+        
+        printf("Adding watch point for rule: %s\n", entry->name);
+        if (global_monitor_add_watch(gm, entry->trigger_addr, entry->expect_value, &rule) != 0) {
+            printf("Failed to add watch point for rule: %s\n", entry->name);
+            goto cleanup;
+        }
     }
     
-    // 添加监视点
-    printf("Adding watch point...\n");
-    if (global_monitor_add_watch(gm, 0x1000, 0xAA, rule) != 0) {
-        printf("Failed to add watch point\n");
-        free(rule);
-        goto cleanup;
-    }
+    // 测试规则触发
+    printf("\nTesting rules...\n");
     
-    free(rule);  // 规则已被复制，可以释放原始内存
+    // 测试温度报警规则
+    printf("Testing temperature alert rule...\n");
+    global_monitor_on_address_change(gm, TEMP_REG, 3000);
     
-    // 测试地址变化触发
-    printf("Testing address change trigger...\n");
+    // 测试FPGA中断规则
+    printf("Testing FPGA interrupt rule...\n");
+    global_monitor_on_address_change(gm, FPGA_IRQ_REG, 1);
+    
+    // 测试通用规则
+    printf("Testing general purpose rule...\n");
     global_monitor_on_address_change(gm, 0x1000, 0xAA);
     
     printf("All tests completed successfully!\n");

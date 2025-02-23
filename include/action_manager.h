@@ -7,22 +7,37 @@
 
 // 动作类型
 typedef enum {
-    ACTION_TYPE_WRITE = 0,
-    ACTION_TYPE_SIGNAL,
-    ACTION_TYPE_CALLBACK
+    ACTION_TYPE_WRITE,    // 写入操作
+    ACTION_TYPE_SIGNAL,   // 信号操作
+    ACTION_TYPE_CALLBACK  // 回调函数
 } action_type_t;
+
+// 动作规则回调函数类型
+typedef void (*action_callback_t)(void* data);
 
 // 动作规则结构
 typedef struct {
-    int rule_id;                // 规则ID
+    int rule_id;                 // 规则ID
+    uint32_t trigger_addr;       // 触发地址
+    uint32_t expect_value;       // 期望值
+    action_type_t type;          // 动作类型
+    uint32_t target_addr;        // 目标地址
+    uint32_t action_value;       // 动作值
+    int priority;                // 优先级
+    action_callback_t callback;  // 回调函数
+} action_rule_t;
+
+// 规则表项结构
+typedef struct {
+    const char* name;           // 规则名称
     uint32_t trigger_addr;      // 触发地址
     uint32_t expect_value;      // 期望值
     action_type_t type;         // 动作类型
     uint32_t target_addr;       // 目标地址
     uint32_t action_value;      // 动作值
-    void (*callback)(void*);    // 回调函数
     int priority;               // 优先级
-} action_rule_t;
+    action_callback_t callback; // 回调函数
+} rule_table_entry_t;
 
 // 动作管理器结构
 typedef struct {
@@ -34,8 +49,7 @@ typedef struct {
 // API函数声明
 action_manager_t* action_manager_create(void);
 void action_manager_destroy(action_manager_t* am);
-action_rule_t* action_rule_create(uint32_t trigger_addr, uint32_t expect_value, 
-                                action_type_t type, uint32_t target_addr, uint32_t action_value);
+int action_manager_add_rules_from_table(action_manager_t* am, const rule_table_entry_t* table, int count);
 int action_manager_add_rule(action_manager_t* am, action_rule_t* rule);
 void action_manager_remove_rule(action_manager_t* am, int rule_id);
 void action_manager_execute_rule(action_manager_t* am, action_rule_t* rule);
