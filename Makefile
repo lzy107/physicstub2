@@ -11,7 +11,7 @@ TARGET = program
 
 $(BUILD_DIR)/$(TARGET): $(OBJS)
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(OBJS) -o $@ -ldl -lpthread
+	$(CC) $(OBJS) -o $@ -lpthread
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(BUILD_DIR)

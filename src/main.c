@@ -4,6 +4,7 @@
 #include "device_types.h"
 #include "global_monitor.h"
 #include "action_manager.h"
+#include "device_registry.h"
 #include "../plugins/flash_device.h"
 
 // 测试用的回调函数
@@ -40,16 +41,9 @@ int main() {
         return -1;
     }
     
-    // 获取FLASH设备操作接口
-    device_ops_t* flash_ops = get_flash_device_ops();
-    if (!flash_ops) {
-        printf("Failed to get FLASH device ops\n");
-        goto cleanup;
-    }
-    
-    // 注册FLASH设备类型
-    if (device_type_register(dm, DEVICE_TYPE_FLASH, "FLASH", flash_ops) != 0) {
-        printf("Failed to register FLASH device type\n");
+    // 初始化设备注册表
+    if (device_registry_init(dm) != 0) {
+        printf("Failed to initialize device registry\n");
         goto cleanup;
     }
     
