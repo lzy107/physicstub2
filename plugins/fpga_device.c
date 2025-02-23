@@ -2,6 +2,10 @@
 #include <string.h>
 #include <unistd.h>
 #include "fpga_device.h"
+#include "device_registry.h"
+
+// 注册FPGA设备
+REGISTER_DEVICE(DEVICE_TYPE_FPGA, "FPGA", get_fpga_device_ops);
 
 // FPGA设备内存区域配置
 static device_mem_region_t fpga_regions[FPGA_REGION_COUNT] = {

@@ -3,6 +3,10 @@
 #include <unistd.h>
 #include <time.h>
 #include "temp_sensor.h"
+#include "device_registry.h"
+
+// 注册温度传感器设备
+REGISTER_DEVICE(DEVICE_TYPE_TEMP_SENSOR, "TEMP_SENSOR", get_temp_sensor_ops);
 
 // 温度传感器内存区域配置
 static device_mem_region_t temp_regions[TEMP_REGION_COUNT] = {

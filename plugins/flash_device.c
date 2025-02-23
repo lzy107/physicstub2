@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "flash_device.h"
+#include "device_registry.h"
+
+// 注册FLASH设备
+REGISTER_DEVICE(DEVICE_TYPE_FLASH, "FLASH", get_flash_device_ops);
 
 // FLASH设备内存区域配置
 static device_mem_region_t flash_regions[FLASH_REGION_COUNT] = {
