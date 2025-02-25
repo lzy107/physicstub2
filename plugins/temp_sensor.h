@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 #include <pthread.h>
-#include "device_types.h"
-#include "device_memory.h"
+#include "../include/device_types.h"
+#include "../include/device_memory.h"
 
 // 设备类型ID
 #define DEVICE_TYPE_TEMP_SENSOR 1
@@ -29,7 +29,7 @@
 
 // 温度传感器私有数据结构
 typedef struct {
-    device_mem_config_t mem_config;   // 内存配置
+    device_memory_t* memory;          // 设备内存
     pthread_mutex_t mutex;            // 互斥锁
     pthread_t update_thread;          // 温度更新线程
     int running;                      // 线程运行标志
@@ -37,5 +37,8 @@ typedef struct {
 
 // 获取温度传感器操作接口
 device_ops_t* get_temp_sensor_ops(void);
+
+// 注册温度传感器设备类型
+void register_temp_sensor_device_type(device_manager_t* dm);
 
 #endif // TEMP_SENSOR_H 

@@ -40,7 +40,7 @@
 
 // FPGA设备私有数据结构
 typedef struct {
-    device_mem_config_t mem_config;   // 内存配置
+    device_memory_t* memory;          // 设备内存
     pthread_mutex_t mutex;            // 互斥锁
     pthread_t worker_thread;          // 工作线程
     int running;                      // 线程运行标志

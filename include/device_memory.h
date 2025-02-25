@@ -2,34 +2,44 @@
 #define DEVICE_MEMORY_H
 
 #include <stdint.h>
+#include <stddef.h>
+#include "device_types.h"
 
-// 设备内存区域描述符
+// 前向声明
+struct global_monitor_t;
+
+// 设备内存结构
 typedef struct {
-    uint32_t start_addr;     // 起始地址
-    uint32_t unit_size;      // 单元字节数
-    uint32_t unit_count;     // 单元个数
-    void* mem_ptr;           // 内存指针
-} device_mem_region_t;
+    uint8_t* data;                // 内存数据
+    size_t size;                  // 内存大小
+    struct global_monitor_t* monitor;    // 全局监视器
+    device_type_id_t device_type; // 设备类型
+    int device_id;                // 设备ID
+} device_memory_t;
 
-// 设备内存配置
-typedef struct {
-    device_mem_region_t* regions;  // 内存区域数组
-    uint32_t region_count;         // 区域个数
-} device_mem_config_t;
+// 创建设备内存
+device_memory_t* device_memory_create(size_t size, struct global_monitor_t* monitor, 
+                                     device_type_id_t device_type, int device_id);
 
-// 初始化设备内存区域
-int device_mem_init(device_mem_config_t* config);
+// 销毁设备内存
+void device_memory_destroy(device_memory_t* mem);
 
-// 释放设备内存区域
-void device_mem_destroy(device_mem_config_t* config);
+// 读取内存（32位）
+int device_memory_read(device_memory_t* mem, uint32_t addr, uint32_t* value);
 
-// 读取设备内存
-int device_mem_read(const device_mem_config_t* config, uint32_t addr, void* value, uint32_t size);
+// 写入内存（32位）
+int device_memory_write(device_memory_t* mem, uint32_t addr, uint32_t value);
 
-// 写入设备内存
-int device_mem_write(const device_mem_config_t* config, uint32_t addr, const void* value, uint32_t size);
+// 读取字节
+int device_memory_read_byte(device_memory_t* mem, uint32_t addr, uint8_t* value);
 
-// 查找地址所在的内存区域
-device_mem_region_t* device_mem_find_region(const device_mem_config_t* config, uint32_t addr);
+// 写入字节
+int device_memory_write_byte(device_memory_t* mem, uint32_t addr, uint8_t value);
 
-#endif // DEVICE_MEMORY_H 
+// 批量读取内存
+int device_memory_read_buffer(device_memory_t* mem, uint32_t addr, uint8_t* buffer, size_t length);
+
+// 批量写入内存
+int device_memory_write_buffer(device_memory_t* mem, uint32_t addr, const uint8_t* buffer, size_t length);
+
+#endif /* DEVICE_MEMORY_H */ 

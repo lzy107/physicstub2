@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "action_manager.h"
+#include "device_types.h"
 
 // 规则提供者链表节点
 typedef struct rule_provider_node {
@@ -12,6 +13,132 @@ typedef struct rule_provider_node {
 
 // 全局规则提供者链表头
 static rule_provider_node_t* g_rule_providers = NULL;
+
+// 创建目标处理动作
+action_target_t* action_target_create(action_type_t type, device_type_id_t device_type, int device_id,
+                                     uint32_t addr, uint32_t value, uint32_t mask, 
+                                     action_callback_t callback, void* callback_data) {
+    action_target_t* target = (action_target_t*)calloc(1, sizeof(action_target_t));
+    if (!target) return NULL;
+    
+    target->type = type;
+    target->device_type = device_type;
+    target->device_id = device_id;
+    target->target_addr = addr;
+    target->target_value = value;
+    target->target_mask = mask;
+    target->callback = callback;
+    target->callback_data = callback_data;
+    target->next = NULL;
+    
+    return target;
+}
+
+// 添加目标处理动作到链表
+void action_target_add(action_target_t** head, action_target_t* target) {
+    if (!head || !target) return;
+    
+    if (*head == NULL) {
+        *head = target;
+    } else {
+        action_target_t* current = *head;
+        while (current->next) {
+            current = current->next;
+        }
+        current->next = target;
+    }
+}
+
+// 销毁目标处理动作链表
+void action_target_destroy(action_target_t* targets) {
+    action_target_t* current = targets;
+    while (current) {
+        action_target_t* next = current->next;
+        free(current);
+        current = next;
+    }
+}
+
+// 创建规则触发条件
+rule_trigger_t rule_trigger_create(uint32_t addr, uint32_t value, uint32_t mask) {
+    rule_trigger_t trigger;
+    trigger.trigger_addr = addr;
+    trigger.expected_value = value;
+    trigger.expected_mask = mask;
+    return trigger;
+}
+
+// 创建规则表项
+rule_table_entry_t* rule_table_entry_create(const char* name, rule_trigger_t trigger, 
+                                          action_target_t* targets, int priority) {
+    rule_table_entry_t* entry = (rule_table_entry_t*)calloc(1, sizeof(rule_table_entry_t));
+    if (!entry) return NULL;
+    
+    // 复制名称
+    if (name) {
+        char* name_copy = strdup(name);
+        if (!name_copy) {
+            free(entry);
+            return NULL;
+        }
+        entry->name = name_copy;
+    } else {
+        entry->name = "Unnamed Rule";
+    }
+    
+    // 设置触发条件
+    entry->trigger = trigger;
+    
+    // 设置目标处理动作链表
+    entry->targets = targets;
+    
+    // 设置优先级
+    entry->priority = priority;
+    
+    return entry;
+}
+
+// 销毁规则表项
+void rule_table_entry_destroy(rule_table_entry_t* entry) {
+    if (!entry) return;
+    
+    // 释放名称
+    if (entry->name && strcmp(entry->name, "Unnamed Rule") != 0) {
+        free((void*)entry->name);
+    }
+    
+    // 释放目标处理动作链表
+    action_target_destroy(entry->targets);
+    
+    // 释放表项本身
+    free(entry);
+}
+
+// 复制目标处理动作链表
+static action_target_t* action_target_copy_list(const action_target_t* src) {
+    if (!src) return NULL;
+    
+    action_target_t* head = NULL;
+    const action_target_t* current = src;
+    
+    while (current) {
+        action_target_t* new_target = action_target_create(
+            current->type, current->device_type, current->device_id,
+            current->target_addr, current->target_value, current->target_mask,
+            current->callback, current->callback_data
+        );
+        
+        if (!new_target) {
+            action_target_destroy(head);
+            return NULL;
+        }
+        
+        action_target_add(&head, new_target);
+        current = current->next;
+    }
+    
+    return head;
+}
 
 action_manager_t* action_manager_create(void) {
     action_manager_t* am = (action_manager_t*)calloc(1, sizeof(action_manager_t));
@@ -28,12 +155,17 @@ void action_manager_destroy(action_manager_t* am) {
     if (!am) return;
     
     pthread_mutex_lock(&am->mutex);
+    
+    // 清理所有规则
     if (am->rules) {
+        for (int i = 0; i < am->rule_count; i++) {
+            action_target_destroy(am->rules[i].targets);
+        }
         free(am->rules);
         am->rules = NULL;
     }
-    pthread_mutex_unlock(&am->mutex);
     
+    pthread_mutex_unlock(&am->mutex);
     pthread_mutex_destroy(&am->mutex);
     free(am);
 }
@@ -101,13 +233,20 @@ int action_manager_add_rules_from_table(action_manager_t* am, const rule_table_e
         rule->rule_id = next_rule_id++;
         
         // 复制规则内容
-        rule->trigger_addr = entry->trigger_addr;
-        rule->expect_value = entry->expect_value;
-        rule->type = entry->type;
-        rule->target_addr = entry->target_addr;
-        rule->action_value = entry->action_value;
+        rule->name = entry->name;
+        rule->trigger = entry->trigger;
         rule->priority = entry->priority;
-        rule->callback = entry->callback;
+        
+        // 复制目标处理动作链表
+        rule->targets = action_target_copy_list(entry->targets);
+        if (entry->targets && !rule->targets) {
+            // 如果复制失败，清理已分配的资源
+            for (int j = 0; j < i; j++) {
+                action_target_destroy(am->rules[am->rule_count + j].targets);
+            }
+            pthread_mutex_unlock(&am->mutex);
+            return -1;
+        }
     }
     
     am->rule_count += count;
@@ -130,7 +269,21 @@ int action_manager_add_rule(action_manager_t* am, action_rule_t* rule) {
     }
     
     am->rules = new_rules;
-    memcpy(&am->rules[am->rule_count], rule, sizeof(action_rule_t));
+    
+    // 复制规则内容
+    action_rule_t* new_rule = &am->rules[am->rule_count];
+    new_rule->rule_id = rule->rule_id;
+    new_rule->name = rule->name;
+    new_rule->trigger = rule->trigger;
+    new_rule->priority = rule->priority;
+    
+    // 复制目标处理动作链表
+    new_rule->targets = action_target_copy_list(rule->targets);
+    if (rule->targets && !new_rule->targets) {
+        pthread_mutex_unlock(&am->mutex);
+        return -1;
+    }
+    
     am->rule_count++;
     
     pthread_mutex_unlock(&am->mutex);
@@ -143,6 +296,10 @@ void action_manager_remove_rule(action_manager_t* am, int rule_id) {
     pthread_mutex_lock(&am->mutex);
     for (int i = 0; i < am->rule_count; i++) {
         if (am->rules[i].rule_id == rule_id) {
+            // 清理目标处理动作链表
+            action_target_destroy(am->rules[i].targets);
+            
+            // 移动后面的规则
             if (i < am->rule_count - 1) {
                 memmove(&am->rules[i], &am->rules[i + 1], 
                     (am->rule_count - i - 1) * sizeof(action_rule_t));
@@ -154,22 +311,59 @@ void action_manager_remove_rule(action_manager_t* am, int rule_id) {
     pthread_mutex_unlock(&am->mutex);
 }
 
-void action_manager_execute_rule(action_manager_t* am, action_rule_t* rule) {
-    if (!am || !rule) return;
+// 执行单个目标处理动作
+static void execute_action_target(action_target_t* target, device_manager_t* dm) {
+    if (!target || !dm) return;
     
-    switch (rule->type) {
-        case ACTION_TYPE_WRITE:
-            // 写入操作由调用者执行
+    switch (target->type) {
+        case ACTION_TYPE_NONE:
+            // 不执行任何操作
             break;
             
+        case ACTION_TYPE_WRITE: {
+            // 获取设备实例
+            device_instance_t* instance = device_get(dm, target->device_type, target->device_id);
+            if (!instance) return;
+            
+            // 获取设备操作接口
+            device_ops_t* ops = &dm->types[target->device_type].ops;
+            if (!ops || !ops->write) return;
+            
+            // 如果有掩码，先读取当前值，然后应用掩码
+            if (target->target_mask != 0xFFFFFFFF) {
+                uint32_t current_value;
+                if (ops->read && ops->read(instance, target->target_addr, &current_value) == 0) {
+                    // 清除掩码位，然后设置新值
+                    uint32_t new_value = (current_value & ~target->target_mask) | 
+                                        (target->target_value & target->target_mask);
+                    ops->write(instance, target->target_addr, new_value);
+                }
+            } else {
+                // 直接写入新值
+                ops->write(instance, target->target_addr, target->target_value);
+            }
+            break;
+        }
+        
         case ACTION_TYPE_SIGNAL:
-            // 信号发送
+            // 信号发送逻辑
             break;
             
         case ACTION_TYPE_CALLBACK:
-            if (rule->callback) {
-                rule->callback(&rule->action_value);
+            if (target->callback) {
+                target->callback(target->callback_data ? target->callback_data : &target->target_value);
             }
             break;
+    }
+}
+
+void action_manager_execute_rule(action_manager_t* am, action_rule_t* rule, device_manager_t* dm) {
+    if (!am || !rule || !dm) return;
+    
+    // 执行所有目标处理动作
+    action_target_t* current = rule->targets;
+    while (current) {
+        execute_action_target(current, dm);
+        current = current->next;
     }
 }

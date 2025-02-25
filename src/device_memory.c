@@ -1,110 +1,149 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "device_memory.h"
+#include "global_monitor.h"
 
-int device_mem_init(device_mem_config_t* config) {
-    if (!config || !config->regions || config->region_count == 0) {
-        return -1;
-    }
+// 创建设备内存
+device_memory_t* device_memory_create(size_t size, struct global_monitor_t* monitor, 
+                                     device_type_id_t device_type, int device_id) {
+    if (size == 0) return NULL;
     
-    for (uint32_t i = 0; i < config->region_count; i++) {
-        device_mem_region_t* region = &config->regions[i];
-        if (region->unit_size == 0 || region->unit_count == 0) {
-            return -1;
-        }
-        
-        // 分配内存
-        size_t total_size = region->unit_size * region->unit_count;
-        region->mem_ptr = calloc(1, total_size);
-        if (!region->mem_ptr) {
-            // 清理已分配的内存
-            for (uint32_t j = 0; j < i; j++) {
-                free(config->regions[j].mem_ptr);
-                config->regions[j].mem_ptr = NULL;
-            }
-            return -1;
-        }
-    }
+    device_memory_t* mem = (device_memory_t*)calloc(1, sizeof(device_memory_t));
+    if (!mem) return NULL;
     
-    return 0;
-}
-
-void device_mem_destroy(device_mem_config_t* config) {
-    if (!config || !config->regions) {
-        return;
-    }
-    
-    for (uint32_t i = 0; i < config->region_count; i++) {
-        if (config->regions[i].mem_ptr) {
-            free(config->regions[i].mem_ptr);
-            config->regions[i].mem_ptr = NULL;
-        }
-    }
-}
-
-device_mem_region_t* device_mem_find_region(const device_mem_config_t* config, uint32_t addr) {
-    if (!config || !config->regions) {
+    mem->data = (uint8_t*)calloc(size, sizeof(uint8_t));
+    if (!mem->data) {
+        free(mem);
         return NULL;
     }
     
-    for (uint32_t i = 0; i < config->region_count; i++) {
-        device_mem_region_t* region = &config->regions[i];
-        uint32_t end_addr = region->start_addr + (region->unit_size * region->unit_count);
-        
-        if (addr >= region->start_addr && addr < end_addr) {
-            return region;
-        }
-    }
+    mem->size = size;
+    mem->monitor = monitor;
+    mem->device_type = device_type;
+    mem->device_id = device_id;
     
-    return NULL;
+    return mem;
 }
 
-int device_mem_read(const device_mem_config_t* config, uint32_t addr, void* value, uint32_t size) {
-    if (!config || !value || size == 0) {
+// 销毁设备内存
+void device_memory_destroy(device_memory_t* mem) {
+    if (!mem) return;
+    
+    if (mem->data) {
+        free(mem->data);
+        mem->data = NULL;
+    }
+    
+    free(mem);
+}
+
+// 读取内存
+int device_memory_read(device_memory_t* mem, uint32_t addr, uint32_t* value) {
+    if (!mem || !value || addr >= mem->size) return -1;
+    
+    // 确保地址对齐
+    if (addr % 4 != 0) {
+        printf("Warning: Unaligned memory read at address 0x%08X\n", addr);
+    }
+    
+    // 防止越界访问
+    if (addr + 4 > mem->size) {
+        printf("Error: Memory read out of bounds at address 0x%08X\n", addr);
         return -1;
     }
     
-    device_mem_region_t* region = device_mem_find_region(config, addr);
-    if (!region || !region->mem_ptr) {
-        return -1;
-    }
-    
-    // 计算偏移量和单元索引
-    uint32_t offset = addr - region->start_addr;
-    uint32_t unit_index = offset / region->unit_size;
-    
-    if (unit_index >= region->unit_count || size > region->unit_size) {
-        return -1;
-    }
-    
-    // 读取数据
-    uint8_t* src = (uint8_t*)region->mem_ptr + (unit_index * region->unit_size);
-    memcpy(value, src, size);
+    // 读取32位值
+    *value = *(uint32_t*)(mem->data + addr);
     
     return 0;
 }
 
-int device_mem_write(const device_mem_config_t* config, uint32_t addr, const void* value, uint32_t size) {
-    if (!config || !value || size == 0) {
+// 写入内存
+int device_memory_write(device_memory_t* mem, uint32_t addr, uint32_t value) {
+    if (!mem || addr >= mem->size) return -1;
+    
+    // 确保地址对齐
+    if (addr % 4 != 0) {
+        printf("Warning: Unaligned memory write at address 0x%08X\n", addr);
+    }
+    
+    // 防止越界访问
+    if (addr + 4 > mem->size) {
+        printf("Error: Memory write out of bounds at address 0x%08X\n", addr);
         return -1;
     }
     
-    device_mem_region_t* region = device_mem_find_region(config, addr);
-    if (!region || !region->mem_ptr) {
-        return -1;
+    // 写入32位值
+    *(uint32_t*)(mem->data + addr) = value;
+    
+    // 通知全局监视器
+    if (mem->monitor) {
+        global_monitor_handle_address_change((global_monitor_t*)mem->monitor, 
+                                           mem->device_type, mem->device_id, addr, value);
     }
     
-    // 计算偏移量和单元索引
-    uint32_t offset = addr - region->start_addr;
-    uint32_t unit_index = offset / region->unit_size;
+    return 0;
+}
+
+// 读取字节
+int device_memory_read_byte(device_memory_t* mem, uint32_t addr, uint8_t* value) {
+    if (!mem || !value || addr >= mem->size) return -1;
     
-    if (unit_index >= region->unit_count || size > region->unit_size) {
-        return -1;
+    *value = mem->data[addr];
+    return 0;
+}
+
+// 写入字节
+int device_memory_write_byte(device_memory_t* mem, uint32_t addr, uint8_t value) {
+    if (!mem || addr >= mem->size) return -1;
+    
+    mem->data[addr] = value;
+    
+    // 通知全局监视器（对于字节写入，我们需要读取完整的32位值）
+    if (mem->monitor) {
+        uint32_t aligned_addr = addr & ~0x3;  // 对齐到32位边界
+        uint32_t full_value;
+        
+        if (device_memory_read(mem, aligned_addr, &full_value) == 0) {
+            global_monitor_handle_address_change((global_monitor_t*)mem->monitor, 
+                                               mem->device_type, mem->device_id, 
+                                               aligned_addr, full_value);
+        }
     }
     
-    // 写入数据
-    uint8_t* dst = (uint8_t*)region->mem_ptr + (unit_index * region->unit_size);
-    memcpy(dst, value, size);
+    return 0;
+}
+
+// 批量读取内存
+int device_memory_read_buffer(device_memory_t* mem, uint32_t addr, uint8_t* buffer, size_t length) {
+    if (!mem || !buffer || addr >= mem->size || addr + length > mem->size) return -1;
+    
+    memcpy(buffer, mem->data + addr, length);
+    return 0;
+}
+
+// 批量写入内存
+int device_memory_write_buffer(device_memory_t* mem, uint32_t addr, const uint8_t* buffer, size_t length) {
+    if (!mem || !buffer || addr >= mem->size || addr + length > mem->size) return -1;
+    
+    memcpy(mem->data + addr, buffer, length);
+    
+    // 通知全局监视器（对于每个对齐的32位地址）
+    if (mem->monitor) {
+        uint32_t start_addr = addr & ~0x3;  // 对齐到32位边界
+        uint32_t end_addr = (addr + length + 3) & ~0x3;  // 对齐到32位边界
+        
+        for (uint32_t a = start_addr; a < end_addr; a += 4) {
+            if (a < mem->size) {
+                uint32_t value;
+                if (device_memory_read(mem, a, &value) == 0) {
+                    global_monitor_handle_address_change((global_monitor_t*)mem->monitor, 
+                                                       mem->device_type, mem->device_id, a, value);
+                }
+            }
+        }
+    }
     
     return 0;
 } 

@@ -2,79 +2,115 @@
 #ifndef ACTION_MANAGER_H
 #define ACTION_MANAGER_H
 
-#include <stdint.h>
 #include <pthread.h>
+#include <stdint.h>
+#include "device_types.h"
 
 // 动作类型
 typedef enum {
-    ACTION_TYPE_WRITE,    // 写入操作
-    ACTION_TYPE_SIGNAL,   // 信号操作
-    ACTION_TYPE_CALLBACK  // 回调函数
+    ACTION_TYPE_NONE = 0,
+    ACTION_TYPE_WRITE,
+    ACTION_TYPE_SIGNAL,
+    ACTION_TYPE_CALLBACK
 } action_type_t;
 
-// 动作规则回调函数类型
+// 动作回调函数类型
 typedef void (*action_callback_t)(void* data);
 
-// 动作规则结构
+// 目标处理动作结构
+typedef struct action_target {
+    action_type_t type;           // 动作类型
+    device_type_id_t device_type; // 目标设备类型
+    int device_id;                // 目标设备ID
+    uint32_t target_addr;         // 目标地址
+    uint32_t target_value;        // 目标值
+    uint32_t target_mask;         // 目标掩码
+    action_callback_t callback;   // 回调函数
+    void* callback_data;          // 回调数据
+    struct action_target* next;   // 下一个目标处理动作
+} action_target_t;
+
+// 规则触发条件
 typedef struct {
-    int rule_id;                 // 规则ID
-    uint32_t trigger_addr;       // 触发地址
-    uint32_t expect_value;       // 期望值
-    action_type_t type;          // 动作类型
-    uint32_t target_addr;        // 目标地址
-    uint32_t action_value;       // 动作值
-    int priority;                // 优先级
-    action_callback_t callback;  // 回调函数
+    uint32_t trigger_addr;        // 触发地址
+    uint32_t expected_value;      // 期望值
+    uint32_t expected_mask;       // 期望掩码
+} rule_trigger_t;
+
+// 动作规则
+typedef struct {
+    int rule_id;                  // 规则ID
+    const char* name;             // 规则名称
+    rule_trigger_t trigger;       // 触发条件
+    action_target_t* targets;     // 目标处理动作链表
+    int priority;                 // 优先级
 } action_rule_t;
 
-// 规则表项结构
+// 规则表项 - 重构后的结构
 typedef struct {
-    const char* name;           // 规则名称
-    uint32_t trigger_addr;      // 触发地址
-    uint32_t expect_value;      // 期望值
-    action_type_t type;         // 动作类型
-    uint32_t target_addr;       // 目标地址
-    uint32_t action_value;      // 动作值
-    int priority;               // 优先级
-    action_callback_t callback; // 回调函数
+    const char* name;             // 规则名称
+    rule_trigger_t trigger;       // 触发条件子结构体
+    action_target_t* targets;     // 目标处理动作链表
+    int priority;                 // 优先级
 } rule_table_entry_t;
 
 // 规则提供者接口
 typedef struct {
-    const char* provider_name;                    // 提供者名称
-    const rule_table_entry_t* (*get_rules)(void); // 获取规则表
-    int (*get_rule_count)(void);                  // 获取规则数量
+    const char* provider_name;
+    const rule_table_entry_t* (*get_rules)(void);
+    int (*get_rule_count)(void);
 } rule_provider_t;
 
-// 动作管理器结构
+// 动作管理器
 typedef struct {
-    action_rule_t* rules;      // 规则数组
-    int rule_count;            // 规则数量
-    pthread_mutex_t mutex;     // 互斥锁
+    pthread_mutex_t mutex;        // 互斥锁
+    action_rule_t* rules;         // 规则数组
+    int rule_count;               // 规则数量
 } action_manager_t;
 
-// API函数声明
-action_manager_t* action_manager_create(void);
-void action_manager_destroy(action_manager_t* am);
-int action_manager_add_rules_from_table(action_manager_t* am, const rule_table_entry_t* table, int count);
-int action_manager_add_rule(action_manager_t* am, action_rule_t* rule);
-void action_manager_remove_rule(action_manager_t* am, int rule_id);
-void action_manager_execute_rule(action_manager_t* am, action_rule_t* rule);
+// 创建目标处理动作
+action_target_t* action_target_create(action_type_t type, device_type_id_t device_type, int device_id,
+                                     uint32_t addr, uint32_t value, uint32_t mask, 
+                                     action_callback_t callback, void* callback_data);
 
-// 规则注册相关函数
+// 添加目标处理动作到链表
+void action_target_add(action_target_t** head, action_target_t* target);
+
+// 销毁目标处理动作链表
+void action_target_destroy(action_target_t* targets);
+
+// 创建规则触发条件
+rule_trigger_t rule_trigger_create(uint32_t addr, uint32_t value, uint32_t mask);
+
+// 创建规则表项
+rule_table_entry_t* rule_table_entry_create(const char* name, rule_trigger_t trigger, 
+                                          action_target_t* targets, int priority);
+
+// 销毁规则表项
+void rule_table_entry_destroy(rule_table_entry_t* entry);
+
+// 创建动作管理器
+action_manager_t* action_manager_create(void);
+
+// 销毁动作管理器
+void action_manager_destroy(action_manager_t* am);
+
+// 注册规则提供者
 void action_manager_register_provider(const rule_provider_t* provider);
+
+// 加载所有规则
 int action_manager_load_all_rules(action_manager_t* am);
 
-// 规则提供者注册宏
-#define REGISTER_RULE_PROVIDER(name, get_rules_func, get_count_func) \
-    static const rule_provider_t __rule_provider = { \
-        .provider_name = #name, \
-        .get_rules = get_rules_func, \
-        .get_rule_count = get_count_func \
-    }; \
-    __attribute__((constructor)) \
-    static void __register_rules_##name(void) { \
-        action_manager_register_provider(&__rule_provider); \
-    }
+// 从规则表批量添加规则
+int action_manager_add_rules_from_table(action_manager_t* am, const rule_table_entry_t* table, int count);
 
-#endif
+// 添加单个规则
+int action_manager_add_rule(action_manager_t* am, action_rule_t* rule);
+
+// 移除规则
+void action_manager_remove_rule(action_manager_t* am, int rule_id);
+
+// 执行规则
+void action_manager_execute_rule(action_manager_t* am, action_rule_t* rule, device_manager_t* dm);
+
+#endif /* ACTION_MANAGER_H */
