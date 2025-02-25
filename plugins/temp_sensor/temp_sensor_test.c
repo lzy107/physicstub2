@@ -1,10 +1,10 @@
 // temp_sensor_test.c
 #include <stdio.h>
 #include <stdlib.h>
-#include "../include/device_test.h"
-#include "../include/device_registry.h"
-#include "../include/action_manager.h"
-#include "../include/global_monitor.h"
+#include "../../include/device_test.h"
+#include "../../include/device_registry.h"
+#include "../../include/action_manager.h"
+#include "../../include/global_monitor.h"
 #include "temp_sensor.h"
 
 // 温度报警回调函数

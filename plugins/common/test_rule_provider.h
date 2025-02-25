@@ -2,7 +2,7 @@
 #ifndef TEST_RULE_PROVIDER_H
 #define TEST_RULE_PROVIDER_H
 
-#include "../include/action_manager.h"
+#include "../../include/action_manager.h"
 
 // 测试回调函数
 void test_callback(void* data);

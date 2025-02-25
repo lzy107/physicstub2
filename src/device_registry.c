@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <string.h>
 #include "device_registry.h"
-#include "../plugins/flash_device.h"
-#include "../plugins/temp_sensor.h"
-#include "../plugins/fpga_device.h"
+#include "../plugins/flash/flash_device.h"
+#include "../plugins/temp_sensor/temp_sensor.h"
+#include "../plugins/fpga/fpga_device.h"
 
 // 设备注册表头节点
 static device_register_info_t* device_registry_head = NULL;

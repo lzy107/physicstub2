@@ -2,9 +2,9 @@
 #ifndef DEVICE_TESTS_H
 #define DEVICE_TESTS_H
 
-#include "../include/device_registry.h"
-#include "../include/action_manager.h"
-#include "../include/global_monitor.h"
+#include "../../include/device_registry.h"
+#include "../../include/action_manager.h"
+#include "../../include/global_monitor.h"
 
 // 温度传感器测试
 int run_temp_sensor_tests(device_manager_t* dm, global_monitor_t* gm, action_manager_t* am);

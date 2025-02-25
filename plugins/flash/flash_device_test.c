@@ -1,10 +1,10 @@
 // flash_device_test.c
 #include <stdio.h>
 #include <stdlib.h>
-#include "../include/device_test.h"
-#include "../include/device_registry.h"
-#include "../include/action_manager.h"
-#include "../include/global_monitor.h"
+#include "../../include/device_test.h"
+#include "../../include/device_registry.h"
+#include "../../include/action_manager.h"
+#include "../../include/global_monitor.h"
 #include "flash_device.h"
 
 // 测试回调函数

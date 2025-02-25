@@ -1,10 +1,10 @@
 // test_rule_provider.c
 #include <stdio.h>
 #include <stdlib.h>
-#include "../include/action_manager.h"
-#include "../include/device_types.h"
-#include "flash_device.h"
-#include "temp_sensor.h"
+#include "../../include/action_manager.h"
+#include "../../include/device_types.h"
+#include "../flash/flash_device.h"
+#include "../temp_sensor/temp_sensor.h"
 #include "test_rule_provider.h"
 
 // 测试回调函数

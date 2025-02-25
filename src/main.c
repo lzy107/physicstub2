@@ -8,11 +8,11 @@
 #include "action_manager.h"
 #include "global_monitor.h"
 #include "device_test.h"
-#include "../plugins/flash_device.h"
-#include "../plugins/fpga_device.h"
-#include "../plugins/temp_sensor.h"
-#include "../plugins/device_tests.h"
-#include "../plugins/test_rule_provider.h"
+#include "../plugins/flash/flash_device.h"
+#include "../plugins/fpga/fpga_device.h"
+#include "../plugins/temp_sensor/temp_sensor.h"
+#include "../plugins/common/device_tests.h"
+#include "../plugins/common/test_rule_provider.h"
 
 int main() {
     printf("初始化设备模拟器...\n");

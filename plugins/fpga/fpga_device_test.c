@@ -1,12 +1,12 @@
 // fpga_device_test.c
 #include <stdio.h>
 #include <stdlib.h>
-#include "../include/device_test.h"
-#include "../include/device_registry.h"
-#include "../include/action_manager.h"
-#include "../include/global_monitor.h"
+#include "../../include/device_test.h"
+#include "../../include/device_registry.h"
+#include "../../include/action_manager.h"
+#include "../../include/global_monitor.h"
 #include "fpga_device.h"
-#include "flash_device.h"
+#include "../flash/flash_device.h"
 
 // FPGA 中断回调函数
 void fpga_irq_callback(void* data) {
