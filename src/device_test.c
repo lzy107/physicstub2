@@ -67,10 +67,10 @@ int run_test_case(device_manager_t* dm, const test_case_t* test_case) {
     
     printf("\nRunning test case: %s\n", test_case->name);
     
-    // 创建设备实例
-    device_instance_t* instance = device_create(dm, test_case->device_type, test_case->device_id);
+    // 获取已存在的设备实例
+    device_instance_t* instance = device_get(dm, test_case->device_type, test_case->device_id);
     if (!instance) {
-        printf("Failed to create device instance\n");
+        printf("Failed to get device instance\n");
         return -1;
     }
     

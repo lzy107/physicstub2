@@ -151,7 +151,7 @@ static int fpga_init(device_instance_t* instance) {
     dev_data->running = 1;
     
     // 创建设备内存
-    dev_data->memory = device_memory_create(FPGA_DATA_START + 0x1000, NULL, DEVICE_TYPE_FPGA, instance->dev_id);
+    dev_data->memory = device_memory_create(FPGA_DATA_START + 0x2000, NULL, DEVICE_TYPE_FPGA, instance->dev_id);
     if (!dev_data->memory) {
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);
