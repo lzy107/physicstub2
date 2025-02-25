@@ -231,9 +231,6 @@ int main() {
         NULL
     );
     
-    // 创建触发条件
-    rule_trigger_t custom_trigger = rule_trigger_create(FLASH_REG_STATUS, 0x01, 0x01);
-    
     // 设置监视点和规则
     global_monitor_setup_watch_rule(gm, DEVICE_TYPE_FLASH, 0, FLASH_REG_STATUS, 
                                    0x01, 0x01, custom_target);
