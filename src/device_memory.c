@@ -79,8 +79,16 @@ int device_memory_write(device_memory_t* mem, uint32_t addr, uint32_t value) {
     
     // 通知全局监视器
     if (mem->monitor) {
-        global_monitor_handle_address_change((global_monitor_t*)mem->monitor, 
-                                           mem->device_type, mem->device_id, addr, value);
+        // 使用新的函数处理32位地址的变化
+        global_monitor_handle_address_range_changes(
+            (global_monitor_t*)mem->monitor,
+            mem->device_type,
+            mem->device_id,
+            addr,
+            addr + 4,  // 只处理一个32位地址
+            mem->data,
+            mem->size
+        );
     }
     
     return 0;
@@ -100,16 +108,20 @@ int device_memory_write_byte(device_memory_t* mem, uint32_t addr, uint8_t value)
     
     mem->data[addr] = value;
     
-    // 通知全局监视器（对于字节写入，我们需要读取完整的32位值）
+    // 通知全局监视器（对于字节写入，我们需要处理包含此字节的32位值）
     if (mem->monitor) {
         uint32_t aligned_addr = addr & ~0x3;  // 对齐到32位边界
-        uint32_t full_value;
         
-        if (device_memory_read(mem, aligned_addr, &full_value) == 0) {
-            global_monitor_handle_address_change((global_monitor_t*)mem->monitor, 
-                                               mem->device_type, mem->device_id, 
-                                               aligned_addr, full_value);
-        }
+        // 使用新的函数处理字节写入导致的地址变化
+        global_monitor_handle_address_range_changes(
+            (global_monitor_t*)mem->monitor,
+            mem->device_type,
+            mem->device_id,
+            aligned_addr,
+            aligned_addr + 4,  // 只处理一个32位地址
+            mem->data,
+            mem->size
+        );
     }
     
     return 0;
@@ -134,15 +146,16 @@ int device_memory_write_buffer(device_memory_t* mem, uint32_t addr, const uint8_
         uint32_t start_addr = addr & ~0x3;  // 对齐到32位边界
         uint32_t end_addr = (addr + length + 3) & ~0x3;  // 对齐到32位边界
         
-        for (uint32_t a = start_addr; a < end_addr; a += 4) {
-            if (a < mem->size) {
-                uint32_t value;
-                if (device_memory_read(mem, a, &value) == 0) {
-                    global_monitor_handle_address_change((global_monitor_t*)mem->monitor, 
-                                                       mem->device_type, mem->device_id, a, value);
-                }
-            }
-        }
+        // 使用新的函数处理地址范围内的监视点变化
+        global_monitor_handle_address_range_changes(
+            (global_monitor_t*)mem->monitor,
+            mem->device_type,
+            mem->device_id,
+            start_addr,
+            end_addr,
+            mem->data,
+            mem->size
+        );
     }
     
     return 0;

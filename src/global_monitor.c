@@ -138,6 +138,70 @@ void global_monitor_handle_address_change(global_monitor_t* gm, device_type_id_t
     pthread_mutex_unlock(&gm->mutex);
 }
 
+// 处理地址范围内的监视点变化
+void global_monitor_handle_address_range_changes(global_monitor_t* gm, device_type_id_t device_type,
+                                               int device_id, uint32_t start_addr, uint32_t end_addr,
+                                               uint8_t* memory_data, size_t memory_size) {
+    if (!gm || !gm->am || !memory_data) return;
+    
+    pthread_mutex_lock(&gm->mutex);
+    
+    // 首先检查是否有任何监视点与当前设备类型和ID匹配
+    int has_watchpoints = 0;
+    for (int i = 0; i < gm->watch_count; i++) {
+        watch_point_t* wp = &gm->watch_points[i];
+        if (wp->device_type == device_type && wp->device_id == device_id) {
+            has_watchpoints = 1;
+            break;
+        }
+    }
+    
+    // 只有在有匹配的监视点时才继续处理
+    if (has_watchpoints) {
+        // 遍历所有监视点，只处理特定设备和地址范围内的监视点
+        for (int i = 0; i < gm->watch_count; i++) {
+            watch_point_t* wp = &gm->watch_points[i];
+            
+            // 只处理匹配当前设备的监视点，且地址在修改范围内的监视点
+            if (wp->device_type == device_type && 
+                wp->device_id == device_id && 
+                wp->addr >= start_addr && wp->addr < end_addr) {
+                
+                // 确认地址在内存范围内
+                if (wp->addr < memory_size) {
+                    // 读取最新值
+                    uint32_t value;
+                    
+                    // 检查地址对齐
+                    if (wp->addr % 4 == 0 && wp->addr + 4 <= memory_size) {
+                        value = *(uint32_t*)(memory_data + wp->addr);
+                        
+                        // 更新监视点的值
+                        wp->last_value = value;
+                        
+                        // 检查规则触发
+                        pthread_mutex_lock(&gm->am->mutex);
+                        for (int j = 0; j < gm->am->rule_count; j++) {
+                            action_rule_t* rule = &gm->am->rules[j];
+                            
+                            if (rule->trigger.trigger_addr == wp->addr) {
+                                if ((value & rule->trigger.expected_mask) == 
+                                    (rule->trigger.expected_value & rule->trigger.expected_mask)) {
+                                    // 执行规则
+                                    action_manager_execute_rule(gm->am, rule, gm->dm);
+                                }
+                            }
+                        }
+                        pthread_mutex_unlock(&gm->am->mutex);
+                    }
+                }
+            }
+        }
+    }
+    
+    pthread_mutex_unlock(&gm->mutex);
+}
+
 // 添加监视点并设置规则
 int global_monitor_setup_watch_rule(global_monitor_t* gm, device_type_id_t device_type, 
                                    int device_id, uint32_t addr, uint32_t expected_value, 

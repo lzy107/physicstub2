@@ -42,6 +42,11 @@ void global_monitor_remove_watch(global_monitor_t* gm, device_type_id_t device_t
 void global_monitor_handle_address_change(global_monitor_t* gm, device_type_id_t device_type, 
                                          int device_id, uint32_t addr, uint32_t value);
 
+// 处理地址范围内的监视点变化
+void global_monitor_handle_address_range_changes(global_monitor_t* gm, device_type_id_t device_type,
+                                               int device_id, uint32_t start_addr, uint32_t end_addr,
+                                               uint8_t* memory_data, size_t memory_size);
+
 // 添加监视点并设置规则
 int global_monitor_setup_watch_rule(global_monitor_t* gm, device_type_id_t device_type, 
                                    int device_id, uint32_t addr, uint32_t expected_value, 
