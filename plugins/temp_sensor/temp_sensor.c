@@ -70,13 +70,22 @@ static int temp_sensor_write(device_instance_t* instance, uint32_t addr, uint32_
 static void temp_sensor_reset(device_instance_t* instance);
 static void temp_sensor_destroy(device_instance_t* instance);
 
-// 温度传感器操作接口实现
+// 获取温度传感器互斥锁
+static pthread_mutex_t* temp_sensor_get_mutex(device_instance_t* instance) {
+    if (!instance || !instance->private_data) return NULL;
+    
+    temp_sensor_data_t* dev_data = (temp_sensor_data_t*)instance->private_data;
+    return &dev_data->mutex;
+}
+
+// 温度传感器操作接口
 static device_ops_t temp_sensor_ops = {
     .init = temp_sensor_init,
     .read = temp_sensor_read,
     .write = temp_sensor_write,
     .reset = temp_sensor_reset,
-    .destroy = temp_sensor_destroy
+    .destroy = temp_sensor_destroy,
+    .get_mutex = temp_sensor_get_mutex
 };
 
 // 获取温度传感器操作接口

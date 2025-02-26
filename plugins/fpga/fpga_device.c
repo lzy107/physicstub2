@@ -67,13 +67,22 @@ static int fpga_write(device_instance_t* instance, uint32_t addr, uint32_t value
 static void fpga_reset(device_instance_t* instance);
 static void fpga_destroy(device_instance_t* instance);
 
-// FPGA设备操作接口实现
+// 获取FPGA设备互斥锁
+static pthread_mutex_t* fpga_get_mutex(device_instance_t* instance) {
+    if (!instance || !instance->private_data) return NULL;
+    
+    fpga_dev_data_t* dev_data = (fpga_dev_data_t*)instance->private_data;
+    return &dev_data->mutex;
+}
+
+// FPGA设备操作接口
 static device_ops_t fpga_ops = {
     .init = fpga_init,
     .read = fpga_read,
     .write = fpga_write,
     .reset = fpga_reset,
-    .destroy = fpga_destroy
+    .destroy = fpga_destroy,
+    .get_mutex = fpga_get_mutex
 };
 
 // 获取FPGA设备操作接口

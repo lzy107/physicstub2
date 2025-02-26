@@ -15,6 +15,7 @@ static int flash_read(device_instance_t* instance, uint32_t addr, uint32_t* valu
 static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t value);
 static void flash_reset(device_instance_t* instance);
 static void flash_destroy(device_instance_t* instance);
+static pthread_mutex_t* flash_get_mutex(device_instance_t* instance);
 
 // FLASH设备操作接口实现
 static device_ops_t flash_ops = {
@@ -22,7 +23,8 @@ static device_ops_t flash_ops = {
     .read = flash_read,
     .write = flash_write,
     .reset = flash_reset,
-    .destroy = flash_destroy
+    .destroy = flash_destroy,
+    .get_mutex = flash_get_mutex
 };
 
 // 获取FLASH设备操作接口
@@ -222,6 +224,14 @@ static void flash_destroy(device_instance_t* instance) {
     // 释放设备数据
     free(dev_data);
     instance->private_data = NULL;
+}
+
+// 获取Flash设备互斥锁
+static pthread_mutex_t* flash_get_mutex(device_instance_t* instance) {
+    if (!instance || !instance->private_data) return NULL;
+    
+    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    return &dev_data->mutex;
 }
 
 // 注册FLASH设备类型

@@ -329,9 +329,20 @@ static void execute_action_target(action_target_t* target, device_manager_t* dm)
             device_ops_t* ops = &dm->types[target->device_type].ops;
             if (!ops || !ops->write) return;
             
-            // 获取设备类型锁，保护读-修改-写操作
-            device_type_t* type = &dm->types[target->device_type];
-            pthread_mutex_lock(&type->mutex);
+            // 获取设备特定的互斥锁
+            pthread_mutex_t* mutex = NULL;
+            if (ops->get_mutex) {
+                mutex = ops->get_mutex(instance);
+            }
+            
+            // 如果无法获取设备特定的互斥锁，回退到使用设备类型锁
+            if (!mutex) {
+                device_type_t* type = &dm->types[target->device_type];
+                mutex = &type->mutex;
+            }
+            
+            // 获取互斥锁
+            pthread_mutex_lock(mutex);
             
             // 如果有掩码，先读取当前值，然后应用掩码
             if (target->target_mask != 0xFFFFFFFF) {
@@ -347,8 +358,8 @@ static void execute_action_target(action_target_t* target, device_manager_t* dm)
                 ops->write(instance, target->target_addr, target->target_value);
             }
             
-            // 释放设备类型锁
-            pthread_mutex_unlock(&type->mutex);
+            // 释放互斥锁
+            pthread_mutex_unlock(mutex);
             break;
         }
         

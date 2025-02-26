@@ -30,6 +30,7 @@ typedef struct {
     int (*write)(device_instance_t* instance, uint32_t addr, uint32_t value);
     void (*reset)(device_instance_t* instance);
     void (*destroy)(device_instance_t* instance);
+    pthread_mutex_t* (*get_mutex)(device_instance_t* instance);  // 获取设备互斥锁
 } device_ops_t;
 
 // 设备类型结构
