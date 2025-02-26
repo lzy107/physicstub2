@@ -329,6 +329,10 @@ static void execute_action_target(action_target_t* target, device_manager_t* dm)
             device_ops_t* ops = &dm->types[target->device_type].ops;
             if (!ops || !ops->write) return;
             
+            // 获取设备类型锁，保护读-修改-写操作
+            device_type_t* type = &dm->types[target->device_type];
+            pthread_mutex_lock(&type->mutex);
+            
             // 如果有掩码，先读取当前值，然后应用掩码
             if (target->target_mask != 0xFFFFFFFF) {
                 uint32_t current_value;
@@ -342,6 +346,9 @@ static void execute_action_target(action_target_t* target, device_manager_t* dm)
                 // 直接写入新值
                 ops->write(instance, target->target_addr, target->target_value);
             }
+            
+            // 释放设备类型锁
+            pthread_mutex_unlock(&type->mutex);
             break;
         }
         
