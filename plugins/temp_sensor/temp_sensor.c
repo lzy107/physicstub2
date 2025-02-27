@@ -174,8 +174,16 @@ static int temp_sensor_init(device_instance_t* instance) {
     // 初始化规则计数器
     dev_data->rule_count = 0;
     
+    // 定义内存区域 - 温度传感器只有一个寄存器区域
+    memory_region_t regions[1];
+    
+    // 寄存器区域
+    regions[0].base_addr = 0x00;
+    regions[0].unit_size = 4;  // 4字节单位
+    regions[0].length = 4;     // 4个寄存器
+    
     // 创建设备内存
-    dev_data->memory = device_memory_create(16, NULL, DEVICE_TYPE_TEMP_SENSOR, instance->dev_id);
+    dev_data->memory = device_memory_create(regions, 1, NULL, DEVICE_TYPE_TEMP_SENSOR, instance->dev_id);
     if (!dev_data->memory) {
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);

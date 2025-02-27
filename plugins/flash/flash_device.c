@@ -47,16 +47,35 @@ static int flash_init(device_instance_t* instance) {
     // 初始化互斥锁
     pthread_mutex_init(&dev_data->mutex, NULL);
     
+    // 定义内存区域
+    memory_region_t regions[2];
+    
+    // 寄存器区域
+    regions[0].base_addr = 0x00;
+    regions[0].unit_size = 4;  // 4字节单位
+    regions[0].length = 8;     // 8个寄存器
+    
+    // 数据区域
+    regions[1].base_addr = FLASH_DATA_START;
+    regions[1].unit_size = 4;  // 4字节单位
+    regions[1].length = (FLASH_MEM_SIZE - FLASH_DATA_START) / 4;  // 剩余空间
+    
     // 创建设备内存
-    dev_data->memory = device_memory_create(FLASH_MEM_SIZE, NULL, DEVICE_TYPE_FLASH, instance->dev_id);
+    dev_data->memory = device_memory_create(regions, 2, NULL, DEVICE_TYPE_FLASH, instance->dev_id);
     if (!dev_data->memory) {
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);
         return -1;
     }
     
-    // 初始化所有数据为0xFF（FLASH擦除状态）
-    memset(dev_data->memory->data, 0xFF, FLASH_MEM_SIZE);
+    // 初始化所有数据区域为0xFF（FLASH擦除状态）
+    for (int i = 0; i < dev_data->memory->region_count; i++) {
+        memory_region_t* region = &dev_data->memory->regions[i];
+        if (region->base_addr == FLASH_DATA_START) {
+            // 只初始化数据区域
+            memset(region->data, 0xFF, region->unit_size * region->length);
+        }
+    }
     
     // 初始化设备状态
     dev_data->status = FLASH_STATUS_READY;
@@ -146,7 +165,7 @@ static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t valu
         // 处理控制命令
         if (value == FLASH_CTRL_ERASE) {
             // 擦除操作 - 将数据区域填充为0xFF
-            memset(dev_data->memory->data + FLASH_DATA_START, 0xFF, FLASH_MEM_SIZE - FLASH_DATA_START);
+            memset(dev_data->memory->regions[1].data, 0xFF, dev_data->memory->regions[1].unit_size * dev_data->memory->regions[1].length);
             dev_data->status |= FLASH_STATUS_WEL; // 设置写使能
         }
     }
@@ -210,7 +229,7 @@ static void flash_reset(device_instance_t* instance) {
     dev_data->address = 0;
     
     // 将所有数据恢复为0xFF（FLASH擦除状态）
-    memset(dev_data->memory->data, 0xFF, FLASH_MEM_SIZE);
+    memset(dev_data->memory->regions[1].data, 0xFF, dev_data->memory->regions[1].unit_size * dev_data->memory->regions[1].length);
     
     pthread_mutex_unlock(&dev_data->mutex);
 }

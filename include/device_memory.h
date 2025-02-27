@@ -8,17 +8,26 @@
 // 前向声明
 struct global_monitor_t;
 
+// 内存区域结构体 - 四元组结构
+typedef struct {
+    uint32_t base_addr;       // 基地址
+    size_t unit_size;         // 单位大小（字节）
+    size_t length;            // 区域长度（单位数量）
+    uint8_t* data;            // 数据指针
+} memory_region_t;
+
 // 设备内存结构
 typedef struct {
-    uint8_t* data;                // 内存数据
-    size_t size;                  // 内存大小
+    memory_region_t* regions; // 内存区域数组
+    int region_count;         // 区域数量
     struct global_monitor_t* monitor;    // 全局监视器
     device_type_id_t device_type; // 设备类型
     int device_id;                // 设备ID
 } device_memory_t;
 
 // 创建设备内存
-device_memory_t* device_memory_create(size_t size, struct global_monitor_t* monitor, 
+device_memory_t* device_memory_create(memory_region_t* regions, int region_count, 
+                                     struct global_monitor_t* monitor, 
                                      device_type_id_t device_type, int device_id);
 
 // 销毁设备内存
@@ -41,5 +50,8 @@ int device_memory_read_buffer(device_memory_t* mem, uint32_t addr, uint8_t* buff
 
 // 批量写入内存
 int device_memory_write_buffer(device_memory_t* mem, uint32_t addr, const uint8_t* buffer, size_t length);
+
+// 查找地址所在的内存区域
+memory_region_t* device_memory_find_region(device_memory_t* mem, uint32_t addr);
 
 #endif /* DEVICE_MEMORY_H */ 

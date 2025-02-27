@@ -182,8 +182,21 @@ static int fpga_init(device_instance_t* instance) {
     // 初始化规则计数器
     dev_data->rule_count = 0;
     
+    // 定义内存区域
+    memory_region_t regions[2];
+    
+    // 寄存器区域
+    regions[0].base_addr = 0x00;
+    regions[0].unit_size = 4;  // 4字节单位
+    regions[0].length = FPGA_DATA_START / 4;  // 寄存器区域大小
+    
+    // 数据区域
+    regions[1].base_addr = FPGA_DATA_START;
+    regions[1].unit_size = 4;  // 4字节单位
+    regions[1].length = 0x2000 / 4;  // 数据区域大小
+    
     // 创建设备内存
-    dev_data->memory = device_memory_create(FPGA_DATA_START + 0x2000, NULL, DEVICE_TYPE_FPGA, instance->dev_id);
+    dev_data->memory = device_memory_create(regions, 2, NULL, DEVICE_TYPE_FPGA, instance->dev_id);
     if (!dev_data->memory) {
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);
@@ -261,7 +274,14 @@ static void fpga_reset(device_instance_t* instance) {
     device_memory_write(dev_data->memory, FPGA_STATUS_REG, status);
     
     // 清除数据区
-    memset(dev_data->memory->data + FPGA_DATA_START, 0, 0x1000);
+    for (int i = 0; i < dev_data->memory->region_count; i++) {
+        memory_region_t* region = &dev_data->memory->regions[i];
+        if (region->base_addr == FPGA_DATA_START) {
+            // 只清除数据区域
+            memset(region->data, 0, region->unit_size * region->length);
+            break;
+        }
+    }
 }
 
 // 销毁FPGA设备
