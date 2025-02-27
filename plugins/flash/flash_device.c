@@ -5,6 +5,8 @@
 #include "flash_device.h"
 #include "../include/device_registry.h"
 #include "../include/device_memory.h"
+#include "../include/action_manager.h"
+#include "../include/device_rules.h"
 
 // 注册FLASH设备
 REGISTER_DEVICE(DEVICE_TYPE_FLASH, "FLASH", get_flash_device_ops);
@@ -16,6 +18,7 @@ static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t valu
 static void flash_reset(device_instance_t* instance);
 static void flash_destroy(device_instance_t* instance);
 static pthread_mutex_t* flash_get_mutex(device_instance_t* instance);
+static device_rule_manager_t* flash_get_rule_manager(device_instance_t* instance);
 
 // FLASH设备操作接口实现
 static device_ops_t flash_ops = {
@@ -24,7 +27,8 @@ static device_ops_t flash_ops = {
     .write = flash_write,
     .reset = flash_reset,
     .destroy = flash_destroy,
-    .get_mutex = flash_get_mutex
+    .get_mutex = flash_get_mutex,
+    .get_rule_manager = flash_get_rule_manager
 };
 
 // 获取FLASH设备操作接口
@@ -60,6 +64,9 @@ static int flash_init(device_instance_t* instance) {
     dev_data->config = 0;
     dev_data->address = 0;
     dev_data->size = FLASH_MEM_SIZE;
+    
+    // 初始化规则计数器
+    dev_data->rule_count = 0;
     
     instance->private_data = dev_data;
     return 0;
@@ -215,6 +222,14 @@ static void flash_destroy(device_instance_t* instance) {
     flash_device_t* dev_data = (flash_device_t*)instance->private_data;
     if (!dev_data) return;
     
+    // 清理设备规则
+    for (int i = 0; i < dev_data->rule_count; i++) {
+        if (dev_data->device_rules[i].targets) {
+            action_target_destroy(dev_data->device_rules[i].targets);
+            dev_data->device_rules[i].targets = NULL;
+        }
+    }
+    
     // 销毁互斥锁
     pthread_mutex_destroy(&dev_data->mutex);
     
@@ -234,10 +249,51 @@ static pthread_mutex_t* flash_get_mutex(device_instance_t* instance) {
     return &dev_data->mutex;
 }
 
+// 获取Flash设备规则管理器
+static device_rule_manager_t* flash_get_rule_manager(device_instance_t* instance) {
+    if (!instance || !instance->private_data) return NULL;
+    
+    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    
+    // 使用静态变量存储规则管理器，避免每次调用都分配内存
+    static device_rule_manager_t rule_manager;
+    
+    // 初始化规则管理器
+    rule_manager.rules = dev_data->device_rules;
+    rule_manager.rule_count = dev_data->rule_count;
+    rule_manager.max_rules = 8; // Flash设备支持8个规则
+    rule_manager.mutex = &dev_data->mutex;
+    
+    return &rule_manager;
+}
+
 // 注册FLASH设备类型
 void register_flash_device_type(device_manager_t* dm) {
     if (!dm) return;
     
     device_ops_t* ops = get_flash_device_ops();
     device_type_register(dm, DEVICE_TYPE_FLASH, "FLASH", ops);
+}
+
+// 向Flash设备添加规则
+int flash_device_add_rule(device_instance_t* instance, uint32_t addr, 
+                         uint32_t expected_value, uint32_t expected_mask, 
+                         action_target_t* targets) {
+    if (!instance || !instance->private_data || !targets) {
+        return -1;
+    }
+    
+    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    
+    // 使用通用的规则添加函数
+    device_rule_manager_t manager;
+    device_rule_manager_init(&manager, &dev_data->mutex, dev_data->device_rules, 8);
+    manager.rule_count = dev_data->rule_count;
+    
+    int result = device_rule_add(&manager, addr, expected_value, expected_mask, targets);
+    
+    // 更新规则计数
+    dev_data->rule_count = manager.rule_count;
+    
+    return result;
 }

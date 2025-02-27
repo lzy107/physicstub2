@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include "../include/device_types.h"
 #include "../include/device_memory.h"
+#include "../include/device_rules.h"
 
 // 设备类型ID
 #define DEVICE_TYPE_TEMP_SENSOR 1
@@ -33,6 +34,10 @@ typedef struct {
     pthread_mutex_t mutex;            // 互斥锁
     pthread_t update_thread;          // 温度更新线程
     int running;                      // 线程运行标志
+    
+    // 设备特定规则
+    device_rule_t device_rules[8];    // 支持最多8个内置规则
+    int rule_count;                   // 当前规则数量
 } temp_sensor_data_t;
 
 // 获取温度传感器操作接口
@@ -40,5 +45,10 @@ device_ops_t* get_temp_sensor_ops(void);
 
 // 注册温度传感器设备类型
 void register_temp_sensor_device_type(device_manager_t* dm);
+
+// 向温度传感器添加规则
+int temp_sensor_add_rule(device_instance_t* instance, uint32_t addr, 
+                        uint32_t expected_value, uint32_t expected_mask, 
+                        action_target_t* targets);
 
 #endif // TEMP_SENSOR_H 

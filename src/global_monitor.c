@@ -4,6 +4,16 @@
 #include <string.h>
 #include "global_monitor.h"
 #include "device_registry.h"
+#include "device_rules.h"
+#include "action_manager.h"
+// 添加设备头文件引用
+#include "../plugins/flash/flash_device.h"
+#include "../plugins/temp_sensor/temp_sensor.h"
+#include "../plugins/fpga/fpga_device.h"
+
+// 前向声明
+static void process_global_watch_points(global_monitor_t* gm, device_type_id_t device_type, int device_id,
+                                      uint32_t start_addr, uint32_t end_addr, uint8_t* memory_data, size_t memory_size);
 
 global_monitor_t* global_monitor_create(action_manager_t* am, device_manager_t* dm) {
     global_monitor_t* gm = (global_monitor_t*)calloc(1, sizeof(global_monitor_t));
@@ -107,35 +117,95 @@ void global_monitor_handle_address_change(global_monitor_t* gm, device_type_id_t
                                          int device_id, uint32_t addr, uint32_t value) {
     if (!gm || !gm->am) return;
     
-    pthread_mutex_lock(&gm->mutex);
+    // 创建一个临时缓冲区来存储当前值
+    uint8_t buffer[4];
+    *(uint32_t*)buffer = value;
     
-    // 更新监视点的值
-    for (int i = 0; i < gm->watch_count; i++) {
-        watch_point_t* wp = &gm->watch_points[i];
-        if (wp->device_type == device_type && wp->device_id == device_id && wp->addr == addr) {
-            wp->last_value = value;
+    // 将单地址变化处理转发到范围变化处理函数
+    global_monitor_handle_address_range_changes(gm, device_type, device_id, addr, addr + 4, buffer, 4);
+}
+
+// 检查值是否匹配规则条件
+static inline int check_rule_match(uint32_t value, uint32_t expected_value, uint32_t expected_mask) {
+    return (value & expected_mask) == (expected_value & expected_mask);
+}
+
+// 执行动作目标
+static void execute_action_target(action_target_t* target, device_manager_t* dm) {
+    if (!target || !dm) return;
+    
+    switch (target->type) {
+        case ACTION_TYPE_WRITE: {
+            // 执行写操作
+            device_instance_t* target_dev = device_get(dm, target->device_type, target->device_id);
+            if (target_dev) {
+                device_type_t* dev_type = &dm->types[target->device_type];
+                if (dev_type->ops.write) {
+                    dev_type->ops.write(target_dev, target->target_addr, target->target_value);
+                }
+            }
             break;
         }
+        case ACTION_TYPE_CALLBACK:
+            // 执行回调函数
+            if (target->callback) {
+                target->callback(target->callback_data ? 
+                               target->callback_data : &target->target_value);
+            }
+            break;
+        default:
+            // 其他类型暂不处理
+            break;
+    }
+}
+
+// 通用设备规则处理函数
+static int handle_device_rules(device_rule_manager_t* rule_manager, uint32_t start_addr, uint32_t end_addr, 
+                             uint8_t* memory_data, size_t memory_size, device_manager_t* dm) {
+    if (!rule_manager || !rule_manager->rules || !memory_data || !dm) return 0;
+    
+    int rules_triggered = 0;
+    pthread_mutex_lock(rule_manager->mutex);
+    
+    // 如果没有设备规则，直接跳过
+    if (rule_manager->rule_count <= 0) {
+        pthread_mutex_unlock(rule_manager->mutex);
+        return 0;
     }
     
-    // 检查所有规则
-    pthread_mutex_lock(&gm->am->mutex);
-    for (int i = 0; i < gm->am->rule_count; i++) {
-        action_rule_t* rule = &gm->am->rules[i];
+    // 遍历设备地址范围内的所有地址
+    for (uint32_t addr = start_addr; addr < end_addr; addr += 4) {
+        if (addr + 4 > memory_size) break;
         
-        // 检查触发条件
-        if (rule->trigger.trigger_addr == addr) {
-            // 应用掩码并检查值是否匹配
-            if ((value & rule->trigger.expected_mask) == 
-                (rule->trigger.expected_value & rule->trigger.expected_mask)) {
-                // 执行规则
-                action_manager_execute_rule(gm->am, rule, gm->dm);
+        // 读取当前值
+        uint32_t value = *(uint32_t*)(memory_data + addr);
+        
+        // 遍历设备规则列表
+        for (int i = 0; i < rule_manager->rule_count; i++) {
+            if (!rule_manager->rules[i].active) continue;
+            
+            // 检查地址是否匹配
+            if (rule_manager->rules[i].addr == addr) {
+                // 应用掩码并检查值是否匹配
+                if (device_rule_check_match(value, 
+                                         rule_manager->rules[i].expected_value, 
+                                         rule_manager->rules[i].expected_mask)) {
+                    // 规则触发，执行动作
+                    action_target_t* current = rule_manager->rules[i].targets;
+                    while (current) {
+                        execute_action_target(current, dm);
+                        // 移动到下一个目标
+                        current = current->next;
+                    }
+                    
+                    rules_triggered = 1;
+                }
             }
         }
     }
-    pthread_mutex_unlock(&gm->am->mutex);
     
-    pthread_mutex_unlock(&gm->mutex);
+    pthread_mutex_unlock(rule_manager->mutex);
+    return rules_triggered;
 }
 
 // 处理地址范围内的监视点变化
@@ -151,6 +221,78 @@ void global_monitor_handle_address_range_changes(global_monitor_t* gm, device_ty
     if (end_addr > memory_size) {
         end_addr = memory_size;
     }
+    
+    // 获取设备实例，用于检查设备特定规则
+    device_instance_t* instance = device_get(gm->dm, device_type, device_id);
+    
+    // 处理设备特定规则 - 使用设备提供的钩子函数
+    if (instance) {
+        device_type_t* dev_type = &gm->dm->types[device_type];
+        if (dev_type->ops.get_rule_manager) {
+            device_rule_manager_t* rule_manager = dev_type->ops.get_rule_manager(instance);
+            if (rule_manager) {
+                handle_device_rules(rule_manager, start_addr, end_addr, memory_data, memory_size, gm->dm);
+            }
+        }
+    }
+    
+    // 处理全局监视点
+    process_global_watch_points(gm, device_type, device_id, start_addr, end_addr, memory_data, memory_size);
+}
+
+// 添加监视点并设置规则
+int global_monitor_setup_watch_rule(global_monitor_t* gm, device_type_id_t device_type, 
+                                   int device_id, uint32_t addr, uint32_t expected_value, 
+                                   uint32_t expected_mask, action_target_t* targets) {
+    if (!gm || !gm->am) return -1;
+    
+    // 添加监视点
+    if (global_monitor_add_watch(gm, device_type, device_id, addr) != 0) {
+        return -1;
+    }
+    
+    // 创建规则
+    action_rule_t rule;
+    memset(&rule, 0, sizeof(action_rule_t));
+    
+    // 生成规则ID
+    static int next_rule_id = 1000; // 使用不同的ID范围，避免与预定义规则冲突
+    rule.rule_id = next_rule_id++;
+    
+    // 设置规则名称
+    char rule_name_buf[64];
+    snprintf(rule_name_buf, sizeof(rule_name_buf), "Watch_Rule_%d_%d_%08X", device_type, device_id, addr);
+    char* rule_name = strdup(rule_name_buf);
+    if (!rule_name) {
+        rule.name = "Watch_Rule";
+    } else {
+        rule.name = rule_name;
+    }
+    
+    // 设置触发条件
+    rule.trigger = rule_trigger_create(addr, expected_value, expected_mask);
+    
+    // 设置目标处理动作
+    rule.targets = targets;
+    
+    // 设置优先级
+    rule.priority = 100; // 默认优先级
+    
+    // 添加规则
+    int result = action_manager_add_rule(gm->am, &rule);
+    
+    // 清理临时分配的内存
+    if (rule_name && strcmp(rule_name, "Watch_Rule") != 0) {
+        free(rule_name);
+    }
+    
+    return result;
+}
+
+// 处理全局监视点批处理
+static void process_global_watch_points(global_monitor_t* gm, device_type_id_t device_type, int device_id,
+                                      uint32_t start_addr, uint32_t end_addr, uint8_t* memory_data, size_t memory_size) {
+    if (!gm || !gm->am || !memory_data) return;
     
     pthread_mutex_lock(&gm->mutex);
     
@@ -219,8 +361,9 @@ void global_monitor_handle_address_range_changes(global_monitor_t* gm, device_ty
             
             if (rule->trigger.trigger_addr == wp->addr) {
                 // 应用掩码并检查值是否匹配
-                if ((value & rule->trigger.expected_mask) == 
-                    (rule->trigger.expected_value & rule->trigger.expected_mask)) {
+                if (check_rule_match(value, 
+                                   rule->trigger.expected_value, 
+                                   rule->trigger.expected_mask)) {
                     // 执行规则
                     action_manager_execute_rule(gm->am, rule, gm->dm);
                 }
@@ -230,53 +373,4 @@ void global_monitor_handle_address_range_changes(global_monitor_t* gm, device_ty
     
     pthread_mutex_unlock(&gm->am->mutex);
     pthread_mutex_unlock(&gm->mutex);
-}
-
-// 添加监视点并设置规则
-int global_monitor_setup_watch_rule(global_monitor_t* gm, device_type_id_t device_type, 
-                                   int device_id, uint32_t addr, uint32_t expected_value, 
-                                   uint32_t expected_mask, action_target_t* targets) {
-    if (!gm || !gm->am) return -1;
-    
-    // 添加监视点
-    if (global_monitor_add_watch(gm, device_type, device_id, addr) != 0) {
-        return -1;
-    }
-    
-    // 创建规则
-    action_rule_t rule;
-    memset(&rule, 0, sizeof(action_rule_t));
-    
-    // 生成规则ID
-    static int next_rule_id = 1000; // 使用不同的ID范围，避免与预定义规则冲突
-    rule.rule_id = next_rule_id++;
-    
-    // 设置规则名称
-    char rule_name_buf[64];
-    snprintf(rule_name_buf, sizeof(rule_name_buf), "Watch_Rule_%d_%d_%08X", device_type, device_id, addr);
-    char* rule_name = strdup(rule_name_buf);
-    if (!rule_name) {
-        rule.name = "Watch_Rule";
-    } else {
-        rule.name = rule_name;
-    }
-    
-    // 设置触发条件
-    rule.trigger = rule_trigger_create(addr, expected_value, expected_mask);
-    
-    // 设置目标处理动作
-    rule.targets = targets;
-    
-    // 设置优先级
-    rule.priority = 100; // 默认优先级
-    
-    // 添加规则
-    int result = action_manager_add_rule(gm->am, &rule);
-    
-    // 清理临时分配的内存
-    if (rule_name && strcmp(rule_name, "Watch_Rule") != 0) {
-        free(rule_name);
-    }
-    
-    return result;
 }

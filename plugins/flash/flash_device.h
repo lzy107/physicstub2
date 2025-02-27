@@ -6,6 +6,7 @@
 #include "../include/device_types.h"
 #include "../include/device_memory.h"
 #include "../include/global_monitor.h"
+#include "../include/device_rules.h"
 
 // FLASH 设备寄存器地址
 #define FLASH_REG_STATUS    0x00  // 状态寄存器
@@ -48,6 +49,10 @@ typedef struct {
     uint32_t address;             // 当前地址
     uint32_t size;                // 设备大小
     pthread_mutex_t mutex;        // 互斥锁
+    
+    // 设备特定规则
+    device_rule_t device_rules[8];    // 支持最多8个内置规则
+    int rule_count;                   // 当前规则数量
 } flash_device_t;
 
 // 获取 FLASH 设备操作接口
@@ -55,5 +60,10 @@ device_ops_t* get_flash_device_ops(void);
 
 // 注册 FLASH 设备类型
 void register_flash_device_type(device_manager_t* dm);
+
+// 向Flash设备添加规则
+int flash_device_add_rule(device_instance_t* instance, uint32_t addr, 
+                         uint32_t expected_value, uint32_t expected_mask, 
+                         action_target_t* targets);
 
 #endif /* FLASH_DEVICE_H */

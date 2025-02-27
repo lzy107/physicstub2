@@ -6,6 +6,10 @@
 #include <pthread.h>
 #include "address_space.h"
 
+// 前向声明
+struct device_manager;
+struct device_rule_manager;
+
 // 设备类型ID定义
 typedef enum {
     DEVICE_TYPE_FLASH = 0,
@@ -31,6 +35,9 @@ typedef struct {
     void (*reset)(device_instance_t* instance);
     void (*destroy)(device_instance_t* instance);
     pthread_mutex_t* (*get_mutex)(device_instance_t* instance);  // 获取设备互斥锁
+    
+    // 获取设备规则管理器的钩子函数
+    struct device_rule_manager* (*get_rule_manager)(device_instance_t* instance);
 } device_ops_t;
 
 // 设备类型结构

@@ -5,6 +5,7 @@
 #include "fpga_device.h"
 #include "../include/device_registry.h"
 #include "../include/action_manager.h"
+#include "../include/device_rules.h"
 
 // 注册FPGA设备
 REGISTER_DEVICE(DEVICE_TYPE_FPGA, "FPGA", get_fpga_device_ops);
@@ -75,6 +76,24 @@ static pthread_mutex_t* fpga_get_mutex(device_instance_t* instance) {
     return &dev_data->mutex;
 }
 
+// 获取FPGA设备规则管理器
+static device_rule_manager_t* fpga_get_rule_manager(device_instance_t* instance) {
+    if (!instance || !instance->private_data) return NULL;
+    
+    fpga_dev_data_t* dev_data = (fpga_dev_data_t*)instance->private_data;
+    
+    // 使用静态变量存储规则管理器，避免每次调用都分配内存
+    static device_rule_manager_t rule_manager;
+    
+    // 初始化规则管理器
+    rule_manager.rules = dev_data->device_rules;
+    rule_manager.rule_count = dev_data->rule_count;
+    rule_manager.max_rules = 8; // FPGA设备支持8个规则
+    rule_manager.mutex = &dev_data->mutex;
+    
+    return &rule_manager;
+}
+
 // FPGA设备操作接口
 static device_ops_t fpga_ops = {
     .init = fpga_init,
@@ -82,7 +101,8 @@ static device_ops_t fpga_ops = {
     .write = fpga_write,
     .reset = fpga_reset,
     .destroy = fpga_destroy,
-    .get_mutex = fpga_get_mutex
+    .get_mutex = fpga_get_mutex,
+    .get_rule_manager = fpga_get_rule_manager
 };
 
 // 获取FPGA设备操作接口
@@ -158,6 +178,9 @@ static int fpga_init(device_instance_t* instance) {
     // 初始化互斥锁
     pthread_mutex_init(&dev_data->mutex, NULL);
     dev_data->running = 1;
+    
+    // 初始化规则计数器
+    dev_data->rule_count = 0;
     
     // 创建设备内存
     dev_data->memory = device_memory_create(FPGA_DATA_START + 0x2000, NULL, DEVICE_TYPE_FPGA, instance->dev_id);
@@ -269,4 +292,27 @@ void register_fpga_device_type(device_manager_t* dm) {
     
     device_ops_t* ops = get_fpga_device_ops();
     device_type_register(dm, DEVICE_TYPE_FPGA, "FPGA", ops);
+}
+
+// 向FPGA设备添加规则
+int fpga_add_rule(device_instance_t* instance, uint32_t addr, 
+                 uint32_t expected_value, uint32_t expected_mask, 
+                 action_target_t* targets) {
+    if (!instance || !instance->private_data || !targets) {
+        return -1;
+    }
+    
+    fpga_dev_data_t* dev_data = (fpga_dev_data_t*)instance->private_data;
+    
+    // 使用通用的规则添加函数
+    device_rule_manager_t manager;
+    device_rule_manager_init(&manager, &dev_data->mutex, dev_data->device_rules, 8);
+    manager.rule_count = dev_data->rule_count;
+    
+    int result = device_rule_add(&manager, addr, expected_value, expected_mask, targets);
+    
+    // 更新规则计数
+    dev_data->rule_count = manager.rule_count;
+    
+    return result;
 } 
