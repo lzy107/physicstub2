@@ -189,3 +189,117 @@ device_instance_t* device_get(device_manager_t* dm, device_type_id_t type_id, in
     pthread_mutex_unlock(&type->mutex);
     return instance;
 }
+
+// 创建设备实例（带配置版本）
+device_instance_t* device_create_with_config(device_manager_t* dm, device_type_id_t type_id, 
+                                           int dev_id, device_config_t* config) {
+    if (!dm || type_id >= MAX_DEVICE_TYPES || !config) {
+        return NULL;
+    }
+    
+    device_type_t* type = &dm->types[type_id];
+    pthread_mutex_lock(&type->mutex);
+    
+    // 检查是否已存在相同ID的实例
+    device_instance_t* curr = type->instances;
+    while (curr) {
+        if (curr->dev_id == dev_id) {
+            pthread_mutex_unlock(&type->mutex);
+            return NULL;
+        }
+        curr = curr->next;
+    }
+    
+    // 创建新实例
+    device_instance_t* instance = (device_instance_t*)calloc(1, sizeof(device_instance_t));
+    if (!instance) {
+        pthread_mutex_unlock(&type->mutex);
+        return NULL;
+    }
+    
+    instance->dev_id = dev_id;
+    instance->addr_space = address_space_create();
+    if (!instance->addr_space) {
+        free(instance);
+        pthread_mutex_unlock(&type->mutex);
+        return NULL;
+    }
+    
+    // 调用设备特定的初始化
+    if (type->ops.init && type->ops.init(instance) != 0) {
+        address_space_destroy(instance->addr_space);
+        free(instance);
+        pthread_mutex_unlock(&type->mutex);
+        return NULL;
+    }
+    
+    // 如果配置中包含内存区域配置，应用它们
+    if (config->mem_regions && config->region_count > 0) {
+        // 获取设备私有数据
+        void* private_data = instance->private_data;
+        if (private_data) {
+            // 根据设备类型配置内存区域
+            int result = -1;
+            switch (type_id) {
+                case DEVICE_TYPE_FLASH: {
+                    // 调用Flash设备特定的配置函数
+                    extern int flash_configure_memory_regions(void* dev_data, struct memory_region_config_t* configs, int config_count);
+                    result = flash_configure_memory_regions(private_data, config->mem_regions, config->region_count);
+                    break;
+                }
+                    
+                case DEVICE_TYPE_TEMP_SENSOR: {
+                    // 调用温度传感器设备特定的配置函数
+                    extern int temp_sensor_configure_memory_regions(void* dev_data, struct memory_region_config_t* configs, int config_count);
+                    result = temp_sensor_configure_memory_regions(private_data, config->mem_regions, config->region_count);
+                    break;
+                }
+                    
+                case DEVICE_TYPE_FPGA: {
+                    // 调用FPGA设备特定的配置函数
+                    extern int fpga_configure_memory_regions(void* dev_data, struct memory_region_config_t* configs, int config_count);
+                    result = fpga_configure_memory_regions(private_data, config->mem_regions, config->region_count);
+                    break;
+                }
+                    
+                default:
+                    // 未知设备类型，不做特殊处理
+                    break;
+            }
+            
+            // 如果配置失败，清理资源并返回NULL
+            if (result != 0) {
+                if (type->ops.destroy) {
+                    type->ops.destroy(instance);
+                }
+                address_space_destroy(instance->addr_space);
+                free(instance);
+                pthread_mutex_unlock(&type->mutex);
+                return NULL;
+            }
+        }
+    }
+    
+    // 如果配置中包含规则配置，应用它们
+    if (config->rules && config->rule_count > 0) {
+        // 获取设备规则管理器
+        if (type->ops.get_rule_manager) {
+            struct device_rule_manager* rule_manager = type->ops.get_rule_manager(instance);
+            if (rule_manager) {
+                // 添加规则
+                for (int i = 0; i < config->rule_count; i++) {
+                    device_rule_t* rule = &config->rules[i];
+                    device_rule_add(rule_manager, rule->addr, rule->expected_value, 
+                                   rule->expected_mask, rule->targets);
+                }
+            }
+        }
+    }
+    
+    // 添加到链表头部
+    instance->next = type->instances;
+    type->instances = instance;
+    
+    pthread_mutex_unlock(&type->mutex);
+    return instance;
+}

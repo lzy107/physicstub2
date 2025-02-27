@@ -316,3 +316,34 @@ int flash_device_add_rule(device_instance_t* instance, uint32_t addr,
     
     return result;
 }
+
+// 配置Flash设备内存区域
+int flash_configure_memory_regions(flash_device_t* dev_data, memory_region_config_t* configs, int config_count) {
+    if (!dev_data || !configs || config_count <= 0) {
+        return -1;
+    }
+    
+    // 销毁现有的内存
+    if (dev_data->memory) {
+        device_memory_destroy(dev_data->memory);
+        dev_data->memory = NULL;
+    }
+    
+    // 创建新的内存
+    dev_data->memory = device_memory_create_from_config(configs, config_count, NULL, DEVICE_TYPE_FLASH, 0);
+    if (!dev_data->memory) {
+        return -1;
+    }
+    
+    // 初始化所有数据区域为0xFF（FLASH擦除状态）
+    for (int i = 0; i < dev_data->memory->region_count; i++) {
+        memory_region_t* region = &dev_data->memory->regions[i];
+        // 检查是否是数据区域（基地址大于等于FLASH_DATA_START）
+        if (region->base_addr >= FLASH_DATA_START) {
+            // 只初始化数据区域
+            memset(region->data, 0xFF, region->unit_size * region->length);
+        }
+    }
+    
+    return 0;
+}

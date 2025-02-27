@@ -30,6 +30,11 @@ device_memory_t* device_memory_create(memory_region_t* regions, int region_count
                                      struct global_monitor_t* monitor, 
                                      device_type_id_t device_type, int device_id);
 
+// 创建设备内存（从配置创建）
+device_memory_t* device_memory_create_from_config(memory_region_config_t* configs, int config_count, 
+                                                struct global_monitor_t* monitor, 
+                                                device_type_id_t device_type, int device_id);
+
 // 销毁设备内存
 void device_memory_destroy(device_memory_t* mem);
 

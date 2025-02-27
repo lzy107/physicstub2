@@ -5,19 +5,36 @@
 #include <stdint.h>
 #include <pthread.h>
 #include "address_space.h"
+#include "device_rules.h"
 
 // 前向声明
 struct device_manager;
 struct device_rule_manager;
 
+// 从device_memory.h引入memory_region_config_t结构体
+typedef struct memory_region_config {
+    uint32_t base_addr;       // 基地址
+    size_t unit_size;         // 单位大小（字节）
+    size_t length;            // 区域长度（单位数量）
+} memory_region_config_t;
+
 // 设备类型ID定义
 typedef enum {
     DEVICE_TYPE_FLASH = 0,
     DEVICE_TYPE_TEMP_SENSOR,
+    DEVICE_TYPE_FPGA,
     DEVICE_TYPE_I2C_BUS,
     DEVICE_TYPE_OPTICAL_MODULE,
     MAX_DEVICE_TYPES
 } device_type_id_t;
+
+// 设备配置结构体
+typedef struct {
+    memory_region_config_t* mem_regions;  // 内存区域配置数组
+    int region_count;                     // 区域数量
+    device_rule_t* rules;                 // 规则数组
+    int rule_count;                       // 规则数量
+} device_config_t;
 
 // 设备实例结构
 typedef struct device_instance {
@@ -59,7 +76,14 @@ typedef struct {
 device_manager_t* device_manager_init(void);
 void device_manager_destroy(device_manager_t* dm);
 int device_type_register(device_manager_t* dm, device_type_id_t type_id, const char* name, device_ops_t* ops);
+
+// 创建设备实例（基本版本）
 device_instance_t* device_create(device_manager_t* dm, device_type_id_t type_id, int dev_id);
+
+// 创建设备实例（带配置版本）
+device_instance_t* device_create_with_config(device_manager_t* dm, device_type_id_t type_id, 
+                                           int dev_id, device_config_t* config);
+
 void device_destroy(device_manager_t* dm, device_type_id_t type_id, int dev_id);
 device_instance_t* device_get(device_manager_t* dm, device_type_id_t type_id, int dev_id);
 

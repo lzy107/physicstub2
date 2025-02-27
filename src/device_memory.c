@@ -21,6 +21,51 @@ memory_region_t* device_memory_find_region(device_memory_t* mem, uint32_t addr) 
     return NULL;  // 未找到匹配的区域
 }
 
+// 创建设备内存（从配置创建）
+device_memory_t* device_memory_create_from_config(memory_region_config_t* configs, int config_count, 
+                                                struct global_monitor_t* monitor, 
+                                                device_type_id_t device_type, int device_id) {
+    if (!configs || config_count <= 0) return NULL;
+    
+    device_memory_t* mem = (device_memory_t*)calloc(1, sizeof(device_memory_t));
+    if (!mem) return NULL;
+    
+    // 分配内存区域数组
+    mem->regions = (memory_region_t*)calloc(config_count, sizeof(memory_region_t));
+    if (!mem->regions) {
+        free(mem);
+        return NULL;
+    }
+    
+    // 复制区域信息并分配每个区域的内存
+    for (int i = 0; i < config_count; i++) {
+        mem->regions[i].base_addr = configs[i].base_addr;
+        mem->regions[i].unit_size = configs[i].unit_size;
+        mem->regions[i].length = configs[i].length;
+        
+        // 计算区域总大小并分配内存
+        size_t region_size = configs[i].unit_size * configs[i].length;
+        mem->regions[i].data = (uint8_t*)calloc(region_size, sizeof(uint8_t));
+        
+        if (!mem->regions[i].data) {
+            // 清理已分配的内存
+            for (int j = 0; j < i; j++) {
+                free(mem->regions[j].data);
+            }
+            free(mem->regions);
+            free(mem);
+            return NULL;
+        }
+    }
+    
+    mem->region_count = config_count;
+    mem->monitor = monitor;
+    mem->device_type = device_type;
+    mem->device_id = device_id;
+    
+    return mem;
+}
+
 // 创建设备内存
 device_memory_t* device_memory_create(memory_region_t* regions, int region_count, 
                                      struct global_monitor_t* monitor, 
