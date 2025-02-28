@@ -23,4 +23,14 @@ const rule_table_entry_t* get_device_rules(device_type_id_t device_type, int* co
 // 为设备设置规则
 int setup_device_rules(device_rule_manager_t* rule_manager, device_type_id_t device_type);
 
+// 各设备规则配置的外部声明
+extern const device_rule_config_t flash_rule_configs[];
+extern const int flash_rule_count;
+
+extern const device_rule_config_t temp_sensor_rule_configs[];
+extern const int temp_sensor_rule_count;
+
+extern const device_rule_config_t fpga_rule_configs[];
+extern const int fpga_rule_count;
+
 #endif /* DEVICE_RULE_CONFIGS_H */ 

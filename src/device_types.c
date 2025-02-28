@@ -238,33 +238,10 @@ device_instance_t* device_create_with_config(device_manager_t* dm, device_type_i
         // 获取设备私有数据
         void* private_data = instance->private_data;
         if (private_data) {
-            // 根据设备类型配置内存区域
+            // 使用通用的内存配置函数
             int result = -1;
-            switch (type_id) {
-                case DEVICE_TYPE_FLASH: {
-                    // 调用Flash设备特定的配置函数
-                    extern int flash_configure_memory_regions(void* dev_data, struct memory_region_config_t* configs, int config_count);
-                    result = flash_configure_memory_regions(private_data, config->mem_regions, config->region_count);
-                    break;
-                }
-                    
-                case DEVICE_TYPE_TEMP_SENSOR: {
-                    // 调用温度传感器设备特定的配置函数
-                    extern int temp_sensor_configure_memory_regions(void* dev_data, struct memory_region_config_t* configs, int config_count);
-                    result = temp_sensor_configure_memory_regions(private_data, config->mem_regions, config->region_count);
-                    break;
-                }
-                    
-                case DEVICE_TYPE_FPGA: {
-                    // 调用FPGA设备特定的配置函数
-                    extern int fpga_configure_memory_regions(void* dev_data, struct memory_region_config_t* configs, int config_count);
-                    result = fpga_configure_memory_regions(private_data, config->mem_regions, config->region_count);
-                    break;
-                }
-                    
-                default:
-                    // 未知设备类型，不做特殊处理
-                    break;
+            if (type->ops.configure_memory) {
+                result = type->ops.configure_memory(instance, config->mem_regions, config->region_count);
             }
             
             // 如果配置失败，清理资源并返回NULL

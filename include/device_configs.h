@@ -17,6 +17,6 @@ extern const memory_region_t fpga_memory_regions[];
 extern const int fpga_region_count;
 
 // 获取设备内存配置
-const memory_region_t* get_device_memory_regions(device_type_id_t device_type, int* count);
+const memory_region_t* get_device_memory_regions(uint32_t device_type, int* region_count);
 
 #endif /* DEVICE_CONFIGS_H */ 

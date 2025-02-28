@@ -21,6 +21,7 @@ static void flash_reset(device_instance_t* instance);
 static void flash_destroy(device_instance_t* instance);
 static pthread_mutex_t* flash_get_mutex(device_instance_t* instance);
 static device_rule_manager_t* flash_get_rule_manager(device_instance_t* instance);
+static int flash_configure_memory(device_instance_t* instance, memory_region_config_t* configs, int config_count);
 
 // FLASH设备操作接口实现
 static device_ops_t flash_ops = {
@@ -30,7 +31,8 @@ static device_ops_t flash_ops = {
     .reset = flash_reset,
     .destroy = flash_destroy,
     .get_mutex = flash_get_mutex,
-    .get_rule_manager = flash_get_rule_manager
+    .get_rule_manager = flash_get_rule_manager,
+    .configure_memory = flash_configure_memory
 };
 
 // 获取FLASH设备操作接口
@@ -68,23 +70,6 @@ static int flash_init(device_instance_t* instance) {
         return -1;
     }
     
-    // 初始化所有数据区域为0xFF（FLASH擦除状态）
-    for (int i = 0; i < dev_data->memory->region_count; i++) {
-        memory_region_t* region = &dev_data->memory->regions[i];
-        // 检查是否是数据区域（基地址大于等于FLASH_DATA_START）
-        if (region->base_addr >= FLASH_DATA_START) {
-            // 只初始化数据区域
-            memset(region->data, 0xFF, region->unit_size * region->length);
-        }
-    }
-    
-    // 初始化设备状态
-    dev_data->status = FLASH_STATUS_READY;
-    dev_data->control = 0;
-    dev_data->config = 0;
-    dev_data->address = 0;
-    dev_data->size = FLASH_MEM_SIZE;
-    
     // 初始化规则计数器
     dev_data->rule_count = 0;
     
@@ -99,123 +84,33 @@ static int flash_init(device_instance_t* instance) {
     return 0;
 }
 
-// 读取FLASH数据或寄存器
+// 读取FLASH寄存器或数据
 static int flash_read(device_instance_t* instance, uint32_t addr, uint32_t* value) {
     if (!instance || !value) return -1;
     
     flash_device_t* dev_data = (flash_device_t*)instance->private_data;
-    if (!dev_data) return -1;
+    if (!dev_data || !dev_data->memory) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
     
-    int ret = -1;
-    
-    // 读取寄存器
-    if (addr == FLASH_REG_STATUS) {
-        *value = dev_data->status;
-        ret = 0;
-    }
-    else if (addr == FLASH_REG_CONTROL) {
-        *value = dev_data->control;
-        ret = 0;
-    }
-    else if (addr == FLASH_REG_CONFIG) {
-        *value = dev_data->config;
-        ret = 0;
-    }
-    else if (addr == FLASH_REG_ADDRESS) {
-        *value = dev_data->address;
-        ret = 0;
-    }
-    else if (addr == FLASH_REG_SIZE) {
-        *value = dev_data->size;
-        ret = 0;
-    }
-    else if (addr == FLASH_REG_DATA) {
-        // 读取当前地址的数据
-        uint32_t data_addr = dev_data->address;
-        if (data_addr < FLASH_MEM_SIZE) {
-            ret = device_memory_read(dev_data->memory, data_addr, value);
-        }
-    }
-    else {
-        // 直接读取内存
-        ret = device_memory_read(dev_data->memory, addr, value);
-    }
+    // 直接从内存读取数据
+    int ret = device_memory_read(dev_data->memory, addr, value);
     
     pthread_mutex_unlock(&dev_data->mutex);
     return ret;
 }
 
-// 写入FLASH数据或寄存器
+// 写入FLASH寄存器或数据
 static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t value) {
     if (!instance) return -1;
     
     flash_device_t* dev_data = (flash_device_t*)instance->private_data;
-    if (!dev_data) return -1;
+    if (!dev_data || !dev_data->memory) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
     
-    int ret = -1;
-    
-    // 写入寄存器
-    if (addr == FLASH_REG_STATUS) {
-        // 状态寄存器写保护检查
-        if (!(dev_data->status & FLASH_STATUS_SRWD)) {
-            dev_data->status = value & 0xFF;
-            ret = 0;
-        }
-    }
-    else if (addr == FLASH_REG_CONTROL) {
-        dev_data->control = value & 0xFF;
-        ret = 0;
-        
-        // 处理控制命令
-        if (value == FLASH_CTRL_ERASE) {
-            // 擦除操作 - 将数据区域填充为0xFF
-            memset(dev_data->memory->regions[1].data, 0xFF, dev_data->memory->regions[1].unit_size * dev_data->memory->regions[1].length);
-            dev_data->status |= FLASH_STATUS_WEL; // 设置写使能
-        }
-    }
-    else if (addr == FLASH_REG_CONFIG) {
-        dev_data->config = value & 0xFF;
-        ret = 0;
-    }
-    else if (addr == FLASH_REG_ADDRESS) {
-        dev_data->address = value;
-        ret = 0;
-    }
-    else if (addr == FLASH_REG_DATA) {
-        // 写入当前地址的数据
-        uint32_t data_addr = dev_data->address;
-        if (data_addr < FLASH_MEM_SIZE) {
-            // 检查写使能
-            if (dev_data->status & FLASH_STATUS_WEL) {
-                // 模拟FLASH只能将1改为0的特性
-                uint32_t old_value;
-                if (device_memory_read(dev_data->memory, data_addr, &old_value) == 0) {
-                    value &= old_value;  // 只能将1改为0
-                    ret = device_memory_write(dev_data->memory, data_addr, value);
-                    
-                    // 自动增加地址
-                    dev_data->address += 4;
-                    
-                    // 清除写使能
-                    dev_data->status &= ~FLASH_STATUS_WEL;
-                }
-            }
-        }
-    }
-    else {
-        // 直接写入内存
-        // 检查写使能
-        if (dev_data->status & FLASH_STATUS_WEL) {
-            ret = device_memory_write(dev_data->memory, addr, value);
-            
-            // 清除写使能
-            dev_data->status &= ~FLASH_STATUS_WEL;
-        }
-    }
+    // 直接写入内存
+    int ret = device_memory_write(dev_data->memory, addr, value);
     
     pthread_mutex_unlock(&dev_data->mutex);
     return ret;
@@ -223,23 +118,8 @@ static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t valu
 
 // 复位FLASH设备
 static void flash_reset(device_instance_t* instance) {
-    if (!instance) return;
-    
-    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
-    if (!dev_data) return;
-    
-    pthread_mutex_lock(&dev_data->mutex);
-    
-    // 清除所有寄存器
-    dev_data->status = FLASH_STATUS_READY;
-    dev_data->control = 0;
-    dev_data->config = 0;
-    dev_data->address = 0;
-    
-    // 将所有数据恢复为0xFF（FLASH擦除状态）
-    memset(dev_data->memory->regions[1].data, 0xFF, dev_data->memory->regions[1].unit_size * dev_data->memory->regions[1].length);
-    
-    pthread_mutex_unlock(&dev_data->mutex);
+    // 不执行任何操作，保持接口兼容性
+    (void)instance;
 }
 
 // 销毁FLASH设备
@@ -325,9 +205,14 @@ int flash_device_add_rule(device_instance_t* instance, uint32_t addr,
     return result;
 }
 
-// 配置Flash设备内存区域
-int flash_configure_memory_regions(flash_device_t* dev_data, memory_region_config_t* configs, int config_count) {
-    if (!dev_data || !configs || config_count <= 0) {
+// 配置FLASH设备内存
+static int flash_configure_memory(device_instance_t* instance, memory_region_config_t* configs, int config_count) {
+    if (!instance || !configs || config_count <= 0) {
+        return -1;
+    }
+    
+    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    if (!dev_data) {
         return -1;
     }
     
@@ -338,20 +223,17 @@ int flash_configure_memory_regions(flash_device_t* dev_data, memory_region_confi
     }
     
     // 创建新的内存
-    dev_data->memory = device_memory_create_from_config(configs, config_count, NULL, DEVICE_TYPE_FLASH, 0);
+    dev_data->memory = device_memory_create_from_config(configs, config_count, NULL, DEVICE_TYPE_FLASH, instance->dev_id);
     if (!dev_data->memory) {
         return -1;
     }
     
-    // 初始化所有数据区域为0xFF（FLASH擦除状态）
-    for (int i = 0; i < dev_data->memory->region_count; i++) {
-        memory_region_t* region = &dev_data->memory->regions[i];
-        // 检查是否是数据区域（基地址大于等于FLASH_DATA_START）
-        if (region->base_addr >= FLASH_DATA_START) {
-            // 只初始化数据区域
-            memset(region->data, 0xFF, region->unit_size * region->length);
-        }
-    }
+    // 初始化寄存器
+    device_memory_write(dev_data->memory, FLASH_REG_STATUS, STATUS_READY);
+    device_memory_write(dev_data->memory, FLASH_REG_CONFIG, 0);
+    device_memory_write(dev_data->memory, FLASH_REG_ADDR, 0);
+    device_memory_write(dev_data->memory, FLASH_REG_DATA, 0);
+    device_memory_write(dev_data->memory, FLASH_REG_SIZE, FLASH_MEM_SIZE);
     
     return 0;
 }

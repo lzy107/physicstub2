@@ -5,11 +5,23 @@ BUILD_DIR = build
 PLUGINS_DIR = plugins
 
 # 源文件
-SRCS = $(wildcard $(SRC_DIR)/*.c)
-FLASH_SRCS = $(wildcard $(PLUGINS_DIR)/flash/*.c)
-FPGA_SRCS = $(wildcard $(PLUGINS_DIR)/fpga/*.c)
-TEMP_SENSOR_SRCS = $(wildcard $(PLUGINS_DIR)/temp_sensor/*.c)
-COMMON_SRCS = $(wildcard $(PLUGINS_DIR)/common/*.c)
+SRCS = src/main.c \
+       src/device_registry.c \
+       src/device_memory.c \
+       src/global_monitor.c \
+       src/action_manager.c \
+       src/device_rules.c \
+       src/device_configs.c \
+       src/device_rule_configs.c \
+       plugins/flash/flash_device.c \
+       plugins/flash/flash_configs.c \
+       plugins/flash/flash_rule_configs.c \
+       plugins/temp_sensor/temp_sensor.c \
+       plugins/temp_sensor/temp_sensor_configs.c \
+       plugins/temp_sensor/temp_sensor_rule_configs.c \
+       plugins/fpga/fpga_device.c \
+       plugins/fpga/fpga_configs.c \
+       plugins/fpga/fpga_rule_configs.c
 
 # 目标文件
 OBJS = $(SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)

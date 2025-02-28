@@ -30,14 +30,10 @@
 
 // 温度传感器私有数据结构
 typedef struct {
-    device_memory_t* memory;          // 设备内存
-    pthread_mutex_t mutex;            // 互斥锁
-    pthread_t update_thread;          // 温度更新线程
-    int running;                      // 线程运行标志
-    
-    // 设备特定规则
-    device_rule_t device_rules[8];    // 支持最多8个内置规则
-    int rule_count;                   // 当前规则数量
+    pthread_mutex_t mutex;           // 互斥锁
+    device_memory_t* memory;         // 设备内存
+    device_rule_t device_rules[8];   // 设备规则
+    int rule_count;                  // 规则计数
 } temp_sensor_data_t;
 
 // 获取温度传感器操作接口
@@ -50,5 +46,20 @@ void register_temp_sensor_device_type(device_manager_t* dm);
 int temp_sensor_add_rule(device_instance_t* instance, uint32_t addr, 
                         uint32_t expected_value, uint32_t expected_mask, 
                         action_target_t* targets);
+
+// 函数声明
+int temp_sensor_init(device_instance_t* instance);
+void temp_sensor_destroy(device_instance_t* instance);
+int temp_sensor_read(device_instance_t* instance, uint32_t addr, uint32_t* value);
+int temp_sensor_write(device_instance_t* instance, uint32_t addr, uint32_t value);
+int temp_sensor_read_buffer(device_instance_t* instance, uint32_t addr, uint8_t* buffer, size_t length);
+int temp_sensor_write_buffer(device_instance_t* instance, uint32_t addr, const uint8_t* buffer, size_t length);
+int temp_sensor_reset(device_instance_t* instance);
+struct device_rule_manager* temp_sensor_get_rule_manager(device_instance_t* instance);
+int temp_sensor_configure_memory(device_instance_t* instance, struct memory_region_config_t* configs, int config_count);
+
+// 回调函数
+void temp_alert_callback(void* context, uint32_t addr, uint32_t value);
+void temp_config_callback(void* context, uint32_t addr, uint32_t value);
 
 #endif // TEMP_SENSOR_H 

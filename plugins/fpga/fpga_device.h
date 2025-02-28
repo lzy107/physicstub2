@@ -39,16 +39,12 @@
 #define FPGA_DATA_REGION   1  // 数据区域索引
 #define FPGA_REGION_COUNT  2  // 内存区域总数
 
-// FPGA设备私有数据结构
+// FPGA设备私有数据
 typedef struct {
-    device_memory_t* memory;          // 设备内存
-    pthread_mutex_t mutex;            // 互斥锁
-    pthread_t worker_thread;          // 工作线程
-    int running;                      // 线程运行标志
-    
-    // 设备特定规则
-    device_rule_t device_rules[8];    // 支持最多8个内置规则
-    int rule_count;                   // 当前规则数量
+    pthread_mutex_t mutex;           // 互斥锁
+    device_memory_t* memory;         // 设备内存
+    device_rule_t device_rules[8];   // 设备规则
+    int rule_count;                  // 规则计数
 } fpga_dev_data_t;
 
 // 获取FPGA设备操作接口
@@ -58,5 +54,21 @@ device_ops_t* get_fpga_device_ops(void);
 int fpga_add_rule(device_instance_t* instance, uint32_t addr, 
                  uint32_t expected_value, uint32_t expected_mask, 
                  action_target_t* targets);
+
+// 函数声明
+int fpga_device_init(device_instance_t* instance);
+void fpga_device_destroy(device_instance_t* instance);
+int fpga_device_read(device_instance_t* instance, uint32_t addr, uint32_t* value);
+int fpga_device_write(device_instance_t* instance, uint32_t addr, uint32_t value);
+int fpga_device_read_buffer(device_instance_t* instance, uint32_t addr, uint8_t* buffer, size_t length);
+int fpga_device_write_buffer(device_instance_t* instance, uint32_t addr, const uint8_t* buffer, size_t length);
+int fpga_device_reset(device_instance_t* instance);
+struct device_rule_manager* fpga_get_rule_manager(device_instance_t* instance);
+int fpga_configure_memory(device_instance_t* instance, struct memory_region_config_t* configs, int config_count);
+
+// 回调函数
+void fpga_irq_callback(void* context, uint32_t addr, uint32_t value);
+void fpga_control_callback(void* context, uint32_t addr, uint32_t value);
+void fpga_config_callback(void* context, uint32_t addr, uint32_t value);
 
 #endif // FPGA_DEVICE_H 

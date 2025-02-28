@@ -49,12 +49,15 @@ typedef struct {
     int (*init)(device_instance_t* instance);
     int (*read)(device_instance_t* instance, uint32_t addr, uint32_t* value);
     int (*write)(device_instance_t* instance, uint32_t addr, uint32_t value);
-    void (*reset)(device_instance_t* instance);
+    int (*read_buffer)(device_instance_t* instance, uint32_t addr, uint8_t* buffer, size_t length);
+    int (*write_buffer)(device_instance_t* instance, uint32_t addr, const uint8_t* buffer, size_t length);
+    int (*reset)(device_instance_t* instance);
     void (*destroy)(device_instance_t* instance);
     pthread_mutex_t* (*get_mutex)(device_instance_t* instance);  // 获取设备互斥锁
     
     // 获取设备规则管理器的钩子函数
     struct device_rule_manager* (*get_rule_manager)(device_instance_t* instance);
+    int (*configure_memory)(device_instance_t* instance, struct memory_region_config_t* configs, int config_count);
 } device_ops_t;
 
 // 设备类型结构

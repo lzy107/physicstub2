@@ -14,21 +14,22 @@ typedef struct {
     size_t unit_size;         // 单位大小（字节）
     size_t length;            // 区域长度（单位数量）
     uint8_t* data;            // 数据指针
+    uint32_t device_type;     // 设备类型
+    uint32_t device_id;       // 设备ID
 } memory_region_t;
 
 // 设备内存结构
 typedef struct {
-    memory_region_t* regions; // 内存区域数组
-    int region_count;         // 区域数量
+    memory_region_t* regions;     // 内存区域数组
+    int region_count;             // 区域数量
     struct global_monitor_t* monitor;    // 全局监视器
-    device_type_id_t device_type; // 设备类型
-    int device_id;                // 设备ID
+    uint32_t device_type;         // 设备类型
+    uint32_t device_id;           // 设备ID
 } device_memory_t;
 
 // 创建设备内存
-device_memory_t* device_memory_create(memory_region_t* regions, int region_count, 
-                                     struct global_monitor_t* monitor, 
-                                     device_type_id_t device_type, int device_id);
+device_memory_t* device_memory_create(const memory_region_t* regions, int region_count, 
+                                     struct global_monitor_t* monitor, uint32_t device_type, uint32_t device_id);
 
 // 创建设备内存（从配置创建）
 device_memory_t* device_memory_create_from_config(memory_region_config_t* configs, int config_count, 
