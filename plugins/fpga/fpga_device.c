@@ -70,7 +70,6 @@ static const memory_region_t fpga_memory_regions[] = {
 
 #define FPGA_REGION_COUNT (sizeof(fpga_memory_regions) / sizeof(fpga_memory_regions[0]))
 
-
 // 获取FPGA设备互斥锁
 static pthread_mutex_t* fpga_get_mutex(device_instance_t* instance) {
     if (!instance || !instance->private_data) return NULL;
@@ -146,6 +145,14 @@ int fpga_device_init(device_instance_t* instance) {
         return -1;
     }
     
+    // 初始化寄存器的默认值
+    device_memory_write(dev_data->memory, FPGA_STATUS_REG, STATUS_READY);  // 状态寄存器初始为就绪状态
+    device_memory_write(dev_data->memory, FPGA_CONFIG_REG, 0);             // 配置寄存器初始为0
+    device_memory_write(dev_data->memory, FPGA_CONTROL_REG, 0);            // 控制寄存器初始为0
+    device_memory_write(dev_data->memory, FPGA_IRQ_REG, 0);                // 中断寄存器初始为0
+    
+    printf("DEBUG: FPGA设备寄存器初始化完成\n");
+    
     // 初始化规则计数器
     dev_data->rule_count = 0;
     
@@ -157,6 +164,16 @@ int fpga_device_init(device_instance_t* instance) {
     }
     
     instance->private_data = dev_data;
+    
+    // 初始化地址空间中的寄存器值
+    if (instance->addr_space) {
+        address_space_write(instance->addr_space, FPGA_STATUS_REG, STATUS_READY);
+        address_space_write(instance->addr_space, FPGA_CONFIG_REG, 0);
+        address_space_write(instance->addr_space, FPGA_CONTROL_REG, 0);
+        address_space_write(instance->addr_space, FPGA_IRQ_REG, 0);
+        printf("DEBUG: 同步FPGA设备地址空间寄存器初始值\n");
+    }
+    
     return 0;
 }
 
@@ -184,6 +201,74 @@ int fpga_device_write(device_instance_t* instance, uint32_t addr, uint32_t value
     if (!dev_data || !dev_data->memory) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
+    
+    // 处理特殊寄存器
+    if (addr == FPGA_CONFIG_REG) {
+        // 如果写入配置寄存器，更新状态寄存器
+        if (value & CONFIG_RESET) {
+            printf("DEBUG: FPGA设备配置复位，更新状态寄存器为DONE状态\n");
+            
+            // 设置状态寄存器为DONE状态
+            device_memory_write(dev_data->memory, FPGA_STATUS_REG, STATUS_DONE);
+            
+            // 更新地址空间中的状态寄存器值
+            address_space_t* as = instance->addr_space;
+            if (as) {
+                address_space_write(as, FPGA_STATUS_REG, STATUS_DONE);
+                printf("DEBUG: 同步FPGA设备地址空间状态寄存器为DONE状态\n");
+            }
+            
+            // 直接写入内存后返回
+            device_memory_write(dev_data->memory, addr, value);
+            pthread_mutex_unlock(&dev_data->mutex);
+            return 0;
+        }
+    }
+    else if (addr == FPGA_CONTROL_REG) {
+        // 如果写入控制寄存器并且设置了启动位，触发中断
+        if (value & CTRL_START) {
+            printf("DEBUG: FPGA设备控制启动，检查中断使能\n");
+            
+            // 读取配置寄存器，检查中断使能位
+            uint32_t config_reg;
+            device_memory_read(dev_data->memory, FPGA_CONFIG_REG, &config_reg);
+            
+            // 如果中断使能位已设置，则触发中断
+            if (config_reg & CONFIG_IRQ_EN) {
+                printf("DEBUG: 中断已使能，触发中断\n");
+                
+                // 设置中断寄存器为1
+                device_memory_write(dev_data->memory, FPGA_IRQ_REG, 0x01);
+                
+                // 更新地址空间中的中断寄存器值
+                address_space_t* as = instance->addr_space;
+                if (as) {
+                    address_space_write(as, FPGA_IRQ_REG, 0x01);
+                    printf("DEBUG: 同步FPGA设备地址空间中断寄存器\n");
+                }
+            }
+        }
+    }
+    else if (addr == FPGA_IRQ_REG) {
+        // 如果写入中断寄存器并且值为1，则清除中断
+        if (value == 0x01) {
+            printf("DEBUG: FPGA设备清除中断\n");
+            
+            // 清除中断
+            device_memory_write(dev_data->memory, FPGA_IRQ_REG, 0x00);
+            
+            // 更新地址空间中的中断寄存器值
+            address_space_t* as = instance->addr_space;
+            if (as) {
+                address_space_write(as, FPGA_IRQ_REG, 0x00);
+                printf("DEBUG: 同步FPGA设备地址空间中断寄存器清除\n");
+            }
+            
+            // 返回成功，不需要写入原始值
+            pthread_mutex_unlock(&dev_data->mutex);
+            return 0;
+        }
+    }
     
     // 直接写入内存
     int ret = device_memory_write(dev_data->memory, addr, value);

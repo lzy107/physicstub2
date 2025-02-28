@@ -130,6 +130,30 @@ static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t valu
     
     pthread_mutex_lock(&dev_data->mutex);
     
+    // 处理特殊寄存器
+    if (addr == FLASH_REG_CONTROL) {
+        // 执行控制命令
+        if (value == FLASH_CTRL_WRITE || value == FLASH_CTRL_READ || value == FLASH_CTRL_ERASE) {
+            // 读取当前状态寄存器的值
+            uint32_t current_status;
+            device_memory_read(dev_data->memory, FLASH_REG_STATUS, &current_status);
+            
+            // 保留写使能位，同时设置就绪状态
+            uint32_t new_status = (current_status & FLASH_STATUS_WEL) | FLASH_STATUS_READY;
+            
+            // 更新状态寄存器，设置为就绪状态，同时保留写使能位
+            device_memory_write(dev_data->memory, FLASH_REG_STATUS, new_status);
+            printf("DEBUG: Flash设备执行命令: 0x%02X, 更新状态寄存器为就绪状态，保留写使能位\n", value);
+            
+            // 更新地址空间中的状态寄存器值
+            address_space_t* as = instance->addr_space;
+            if (as) {
+                address_space_write(as, FLASH_REG_STATUS, new_status);
+                printf("DEBUG: 同步Flash设备地址空间状态寄存器，值为: 0x%02X\n", new_status);
+            }
+        }
+    }
+    
     // 直接写入内存
     int ret = device_memory_write(dev_data->memory, addr, value);
     

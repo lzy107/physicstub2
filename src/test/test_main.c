@@ -60,6 +60,37 @@ static void register_all_device_types(device_manager_t* dm) {
 }
 
 /**
+ * @brief 创建测试设备实例
+ * 
+ * @param dm 设备管理器
+ */
+static void create_test_devices(device_manager_t* dm) {
+    // 创建Flash设备实例
+    device_instance_t* flash_dev = device_create(dm, DEVICE_TYPE_FLASH, 0);
+    if (!flash_dev) {
+        printf("警告: 无法创建Flash设备实例\n");
+    } else {
+        printf("已创建Flash设备实例 (ID: 0)\n");
+    }
+    
+    // 创建FPGA设备实例
+    device_instance_t* fpga_dev = device_create(dm, DEVICE_TYPE_FPGA, 0);
+    if (!fpga_dev) {
+        printf("警告: 无法创建FPGA设备实例\n");
+    } else {
+        printf("已创建FPGA设备实例 (ID: 0)\n");
+    }
+    
+    // 创建温度传感器设备实例
+    device_instance_t* temp_sensor_dev = device_create(dm, DEVICE_TYPE_TEMP_SENSOR, 0);
+    if (!temp_sensor_dev) {
+        printf("警告: 无法创建温度传感器设备实例\n");
+    } else {
+        printf("已创建温度传感器设备实例 (ID: 0)\n");
+    }
+}
+
+/**
  * @brief 测试主程序入口
  * 
  * @param argc 参数数量
@@ -113,6 +144,9 @@ int main(int argc, char* argv[]) {
     // 注册设备类型
     register_all_device_types(dm);
     
+    // 创建测试设备实例
+    create_test_devices(dm);
+    
     int total_pass = 0;
     int total_suites = 0;
     
@@ -159,4 +193,4 @@ int main(int argc, char* argv[]) {
     test_environment_cleanup(dm, gm, am);
     
     return (total_pass == total_suites) ? 0 : 1;
-} 
+}

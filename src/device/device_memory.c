@@ -166,6 +166,10 @@ int device_memory_read(device_memory_t* mem, uint32_t addr, uint32_t* value) {
     // 读取32位值
     *value = *(uint32_t*)(region->data + offset);
     
+    // 调试输出
+    printf("DEBUG: device_memory_read - 地址: 0x%08X, 区域基址: 0x%08X, 偏移: %u, 值: 0x%08X\n", 
+           addr, region->base_addr, offset, *value);
+    
     // 记录访问
     if (mem->monitor) {
         memory_access_record(mem->monitor, addr, *value, 0, region->device_type, region->device_id);
@@ -202,7 +206,11 @@ int device_memory_write(device_memory_t* mem, uint32_t addr, uint32_t value) {
     // 写入32位值
     *(uint32_t*)(region->data + offset) = value;
     
-    // 通知全局监视器
+    // 调试输出
+    printf("DEBUG: device_memory_write - 地址: 0x%08X, 区域基址: 0x%08X, 偏移: %u, 值: 0x%08X\n", 
+           addr, region->base_addr, offset, value);
+    
+    // 记录访问
     if (mem->monitor) {
         memory_access_record(mem->monitor, addr, value, 1, region->device_type, region->device_id);
     }

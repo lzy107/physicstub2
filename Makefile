@@ -14,6 +14,9 @@ PLUGIN_DIR = plugins
 CORE_SRC = $(CORE_DIR)/main.c \
            $(CORE_DIR)/address_space.c
 
+# 核心源文件（不包含main.c，用于测试）
+CORE_TEST_SRC = $(CORE_DIR)/address_space.c
+
 # 设备源文件
 DEVICE_SRC = $(DEVICE_DIR)/device_types.c \
              $(DEVICE_DIR)/device_configs.c \
@@ -31,7 +34,8 @@ TEST_SRC = $(TEST_DIR)/device_test.c \
            $(TEST_DIR)/test_main.c \
            $(TEST_DIR)/flash_test.c \
            $(TEST_DIR)/fpga_test.c \
-           $(TEST_DIR)/temp_sensor_test.c
+           $(TEST_DIR)/temp_sensor_test.c \
+           $(TEST_DIR)/device_wrapper.c
 
 # Flash设备插件源文件
 FLASH_SRC = $(PLUGIN_DIR)/flash/flash_device.c \
@@ -51,11 +55,14 @@ TEMP_SENSOR_SRC = $(PLUGIN_DIR)/temp_sensor/temp_sensor.c \
 # 所有源文件
 SRCS = $(CORE_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC)
 
+# 所有源文件（不包含main.c，用于测试）
+TEST_SRCS = $(CORE_TEST_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC)
+
 # 目标文件
 OBJS = $(SRCS:.c=.o)
 
-# 测试目标文件
-TEST_OBJS = $(TEST_SRC:.c=.o)
+# 测试目标文件（不包含main.o）
+TEST_OBJS = $(TEST_SRCS:.c=.o) $(TEST_SRC:.c=.o)
 
 # 构建目录
 BUILD_DIR = build
@@ -76,7 +83,7 @@ $(PROGRAM): $(OBJS) | $(BUILD_DIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 # 测试程序编译
-$(TEST_PROGRAM): $(OBJS) $(TEST_OBJS) | $(BUILD_DIR)
+$(TEST_PROGRAM): $(TEST_OBJS) | $(BUILD_DIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 # 编译规则
@@ -104,4 +111,4 @@ install: $(PROGRAM)
 	mkdir -p $(BIN_DIR)
 	cp $(PROGRAM) $(BIN_DIR)/
 
-.PHONY: all test clean run run_test install 
+.PHONY: all test clean run run_test install
