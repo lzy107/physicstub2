@@ -7,6 +7,7 @@
 #include "../include/device_registry.h"
 #include "../include/action_manager.h"
 #include "../include/device_memory.h"
+#include "../include/device_rule_configs.h"
 
 // 注册温度传感器设备
 REGISTER_DEVICE(DEVICE_TYPE_TEMP_SENSOR, "TEMP_SENSOR", get_temp_sensor_ops);
@@ -19,49 +20,25 @@ static void temp_alert_callback(void* data) {
     }
 }
 
-// 温度传感器规则表
-static rule_table_entry_t temp_sensor_rules[1];
-
-// 初始化温度传感器规则表
-static void init_temp_sensor_rules(void) {
-    // 创建目标处理动作
-    action_target_t* target = action_target_create(
-        ACTION_TYPE_CALLBACK,
-        DEVICE_TYPE_TEMP_SENSOR,
-        0,
-        0,
-        0,
-        0,
-        temp_alert_callback,
-        NULL
-    );
-    
-    // 创建规则触发条件
-    rule_trigger_t trigger = rule_trigger_create(TEMP_REG, 3000, 0xFFFF);
-    
-    // 设置规则
-    temp_sensor_rules[0].name = "Temperature High Alert";
-    temp_sensor_rules[0].trigger = trigger;
-    temp_sensor_rules[0].targets = target;
-    temp_sensor_rules[0].priority = 1;
-}
-
-// 获取温度传感器规则表
-static const rule_table_entry_t* get_temp_sensor_rules(void) {
-    return temp_sensor_rules;
-}
-
-// 获取温度传感器规则数量
-static int get_temp_sensor_rule_count(void) {
-    return sizeof(temp_sensor_rules) / sizeof(temp_sensor_rules[0]);
-}
-
-// 规则提供者
-static rule_provider_t temp_sensor_rule_provider = {
-    .provider_name = "Temperature Sensor Rules",
-    .get_rules = get_temp_sensor_rules,
-    .get_rule_count = get_temp_sensor_rule_count
+// 温度传感器设备内存区域全局配置
+static const memory_region_t temp_sensor_memory_regions[] = {
+    // 寄存器区域
+    {
+        .base_addr = 0x00,
+        .unit_size = 4,  // 4字节单位
+        .length = 8,     // 8个寄存器
+        .data = NULL     // 初始化时分配
+    },
+    // 数据区域
+    {
+        .base_addr = 0x100,
+        .unit_size = 4,  // 4字节单位
+        .length = 64,    // 64个单位
+        .data = NULL     // 初始化时分配
+    }
 };
+
+#define TEMP_SENSOR_REGION_COUNT (sizeof(temp_sensor_memory_regions) / sizeof(temp_sensor_memory_regions[0]))
 
 // 私有函数声明
 static int temp_sensor_init(device_instance_t* instance);
@@ -157,12 +134,6 @@ static void* temp_update_thread(void* arg) {
 static int temp_sensor_init(device_instance_t* instance) {
     if (!instance) return -1;
     
-    // 初始化规则表
-    init_temp_sensor_rules();
-    
-    // 注册规则提供者
-    action_manager_register_provider(&temp_sensor_rule_provider);
-    
     // 分配设备私有数据
     temp_sensor_data_t* dev_data = (temp_sensor_data_t*)calloc(1, sizeof(temp_sensor_data_t));
     if (!dev_data) return -1;
@@ -174,16 +145,15 @@ static int temp_sensor_init(device_instance_t* instance) {
     // 初始化规则计数器
     dev_data->rule_count = 0;
     
-    // 定义内存区域 - 温度传感器只有一个寄存器区域
-    memory_region_t regions[1];
+    // 创建设备内存（使用全局配置）
+    dev_data->memory = device_memory_create(
+        temp_sensor_memory_regions, 
+        TEMP_SENSOR_REGION_COUNT, 
+        NULL, 
+        DEVICE_TYPE_TEMP_SENSOR, 
+        instance->dev_id
+    );
     
-    // 寄存器区域
-    regions[0].base_addr = 0x00;
-    regions[0].unit_size = 4;  // 4字节单位
-    regions[0].length = 4;     // 4个寄存器
-    
-    // 创建设备内存
-    dev_data->memory = device_memory_create(regions, 1, NULL, DEVICE_TYPE_TEMP_SENSOR, instance->dev_id);
     if (!dev_data->memory) {
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);
@@ -200,6 +170,13 @@ static int temp_sensor_init(device_instance_t* instance) {
     device_memory_write(dev_data->memory, TLOW_REG, tlow);
     device_memory_write(dev_data->memory, THIGH_REG, thigh);
     device_memory_write(dev_data->memory, CONFIG_REG, config);
+    
+    // 初始化设备规则
+    device_rule_manager_t* rule_manager = temp_sensor_get_rule_manager(instance);
+    if (rule_manager) {
+        // 使用全局规则配置设置规则
+        dev_data->rule_count = setup_device_rules(rule_manager, DEVICE_TYPE_TEMP_SENSOR);
+    }
     
     // 启动温度更新线程
     if (pthread_create(&dev_data->update_thread, NULL, temp_update_thread, instance) != 0) {

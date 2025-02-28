@@ -159,7 +159,7 @@ static void execute_action_target(action_target_t* target, device_manager_t* dm)
     }
 }
 
-// 通用设备规则处理函数
+// 处理设备规则
 static int handle_device_rules(device_rule_manager_t* rule_manager, uint32_t start_addr, uint32_t end_addr, 
                              uint8_t* memory_data, size_t memory_size, device_manager_t* dm) {
     if (!rule_manager || !rule_manager->rules || !memory_data || !dm) return 0;
@@ -167,40 +167,27 @@ static int handle_device_rules(device_rule_manager_t* rule_manager, uint32_t sta
     int rules_triggered = 0;
     pthread_mutex_lock(rule_manager->mutex);
     
-    // 如果没有设备规则，直接跳过
-    if (rule_manager->rule_count <= 0) {
-        pthread_mutex_unlock(rule_manager->mutex);
-        return 0;
-    }
-    
-    // 遍历设备地址范围内的所有地址
-    for (uint32_t addr = start_addr; addr < end_addr; addr += 4) {
-        if (addr + 4 > memory_size) break;
+    // 遍历所有规则
+    for (int i = 0; i < rule_manager->rule_count; i++) {
+        device_rule_t* rule = &rule_manager->rules[i];
+        if (!rule->active) continue;
+        
+        // 检查地址是否在范围内
+        if (rule->addr < start_addr || rule->addr >= end_addr) {
+            continue;
+        }
         
         // 读取当前值
-        uint32_t value = *(uint32_t*)(memory_data + addr);
+        uint32_t value = *(uint32_t*)(memory_data + (rule->addr - start_addr));
         
-        // 遍历设备规则列表
-        for (int i = 0; i < rule_manager->rule_count; i++) {
-            if (!rule_manager->rules[i].active) continue;
-            
-            // 检查地址是否匹配
-            if (rule_manager->rules[i].addr == addr) {
-                // 应用掩码并检查值是否匹配
-                if (device_rule_check_match(value, 
-                                         rule_manager->rules[i].expected_value, 
-                                         rule_manager->rules[i].expected_mask)) {
-                    // 规则触发，执行动作
-                    action_target_t* current = rule_manager->rules[i].targets;
-                    while (current) {
-                        execute_action_target(current, dm);
-                        // 移动到下一个目标
-                        current = current->next;
-                    }
-                    
-                    rules_triggered = 1;
-                }
+        // 检查条件是否满足
+        if ((value & rule->expected_mask) == (rule->expected_value & rule->expected_mask)) {
+            // 执行所有目标动作
+            for (int j = 0; j < rule->targets.count; j++) {
+                action_target_t* target = &rule->targets.targets[j];
+                execute_action_target(target, dm);
             }
+            rules_triggered++;
         }
     }
     
@@ -243,8 +230,8 @@ void global_monitor_handle_address_range_changes(global_monitor_t* gm, device_ty
 // 添加监视点并设置规则
 int global_monitor_setup_watch_rule(global_monitor_t* gm, device_type_id_t device_type, 
                                    int device_id, uint32_t addr, uint32_t expected_value, 
-                                   uint32_t expected_mask, action_target_t* targets) {
-    if (!gm || !gm->am) return -1;
+                                   uint32_t expected_mask, const action_target_array_t* targets) {
+    if (!gm || !gm->am || !targets) return -1;
     
     // 添加监视点
     if (global_monitor_add_watch(gm, device_type, device_id, addr) != 0) {
@@ -273,7 +260,7 @@ int global_monitor_setup_watch_rule(global_monitor_t* gm, device_type_id_t devic
     rule.trigger = rule_trigger_create(addr, expected_value, expected_mask);
     
     // 设置目标处理动作
-    rule.targets = targets;
+    memcpy(&rule.targets, targets, sizeof(action_target_array_t)); // 直接复制整个数组
     
     // 设置优先级
     rule.priority = 100; // 默认优先级

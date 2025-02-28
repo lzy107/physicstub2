@@ -6,49 +6,57 @@
 
 // 添加设备规则
 int device_rule_add(device_rule_manager_t* manager, uint32_t addr, 
-                   uint32_t expected_value, uint32_t expected_mask, 
-                   action_target_t* targets) {
-    if (!manager || !manager->rules || !manager->mutex) return -1;
+                   uint32_t expected_value, uint32_t expected_mask,
+                   const action_target_array_t* targets) {
+    if (!manager || !targets) return -1;
     
     pthread_mutex_lock(manager->mutex);
     
-    // 检查是否已达到最大规则数
-    if (manager->rule_count >= manager->max_rules) {
-        pthread_mutex_unlock(manager->mutex);
-        return -1;  // 规则已满
-    }
-    
-    // 检查是否已存在相同地址的规则，如果存在则更新
-    int found = -1;
-    for (int i = 0; i < manager->rule_count; i++) {
-        if (manager->rules[i].addr == addr) {
-            found = i;
-            break;
-        }
-    }
-    
-    if (found >= 0) {
-        // 更新现有规则
-        if (manager->rules[found].targets) {
-            // 销毁旧的目标链表
-            action_target_destroy(manager->rules[found].targets);
+    // 检查是否需要扩展规则数组
+    if (manager->rule_count >= manager->rule_capacity) {
+        int new_capacity = manager->rule_capacity * 2;
+        if (new_capacity == 0) new_capacity = 4;
+        
+        device_rule_t* new_rules = (device_rule_t*)realloc(manager->rules, 
+                                                         new_capacity * sizeof(device_rule_t));
+        if (!new_rules) {
+            pthread_mutex_unlock(manager->mutex);
+            return -1;
         }
         
-        manager->rules[found].expected_value = expected_value;
-        manager->rules[found].expected_mask = expected_mask;
-        manager->rules[found].targets = targets;
-        manager->rules[found].active = 1;
-    } else {
-        // 添加新规则
-        int idx = manager->rule_count;
-        manager->rules[idx].addr = addr;
-        manager->rules[idx].expected_value = expected_value;
-        manager->rules[idx].expected_mask = expected_mask;
-        manager->rules[idx].targets = targets;
-        manager->rules[idx].active = 1;
-        manager->rule_count++;
+        manager->rules = new_rules;
+        manager->rule_capacity = new_capacity;
     }
+    
+    // 添加新规则
+    device_rule_t* rule = &manager->rules[manager->rule_count];
+    rule->addr = addr;
+    rule->expected_value = expected_value;
+    rule->expected_mask = expected_mask;
+    memcpy(&rule->targets, targets, sizeof(action_target_array_t)); // 直接复制整个数组
+    rule->active = 1;
+    
+    manager->rule_count++;
     
     pthread_mutex_unlock(manager->mutex);
     return 0;
+}
+
+// 初始化设备规则管理器
+void device_rule_manager_init(device_rule_manager_t* manager, pthread_mutex_t* mutex) {
+    if (!manager) return;
+    
+    manager->mutex = mutex;
+    manager->rules = NULL;
+    manager->rule_count = 0;
+    manager->rule_capacity = 0;
+}
+
+// 创建设备规则管理器
+device_rule_manager_t* device_rule_manager_create(pthread_mutex_t* mutex) {
+    device_rule_manager_t* manager = (device_rule_manager_t*)calloc(1, sizeof(device_rule_manager_t));
+    if (!manager) return NULL;
+    
+    device_rule_manager_init(manager, mutex);
+    return manager;
 } 

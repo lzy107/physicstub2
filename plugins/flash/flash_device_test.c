@@ -82,61 +82,15 @@ static const test_case_t flash_test_case = {
     .cleanup = NULL
 };
 
-// 设置Flash监视点和规则
-void setup_flash_rules(global_monitor_t* gm, action_manager_t* am) {
-    (void)am; // 避免未使用参数警告
-    
-    // 获取Flash设备实例
-    device_instance_t* flash_instance = device_get(gm->dm, DEVICE_TYPE_FLASH, 0);
-    if (!flash_instance) {
-        printf("无法获取Flash设备实例\n");
-        return;
-    }
-    
-    // 创建Flash规则的目标处理动作
-    action_target_t* target = action_target_create(
-        ACTION_TYPE_CALLBACK, 
-        DEVICE_TYPE_FLASH, 
-        0, 
-        0, 
-        0, 
-        0, 
-        flash_test_callback, 
-        NULL
-    );
-    
-    // 使用全局监视器添加规则（保留原有功能）
-    global_monitor_setup_watch_rule(gm, DEVICE_TYPE_FLASH, 0, FLASH_REG_DATA, 
-                                   0xABCD1234, 0xFFFFFFFF, target);
-    
-    // 创建设备特定规则的目标处理动作
-    action_target_t* device_target = action_target_create(
-        ACTION_TYPE_CALLBACK, 
-        DEVICE_TYPE_FLASH, 
-        0, 
-        0, 
-        0, 
-        0, 
-        flash_test_callback, 
-        NULL
-    );
-    
-    // 添加设备特定规则
-    flash_device_add_rule(flash_instance, FLASH_REG_STATUS, 0x01, 0xFF, device_target);
-    
-    printf("已设置Flash设备特定规则: 监控地址 0x%08X, 期望值 0x%02X\n", 
-           FLASH_REG_STATUS, 0x01);
-}
-
-// 运行Flash设备测试
+// 修改测试函数，使用全局规则配置
 int run_flash_tests(device_manager_t* dm, global_monitor_t* gm, action_manager_t* am) {
     printf("\n=== 运行Flash设备测试 ===\n");
     
     // 设置Flash监视点
     global_monitor_add_watch(gm, DEVICE_TYPE_FLASH, 0, FLASH_REG_STATUS);
     
-    // 设置Flash规则
-    setup_flash_rules(gm, am);
+    // 使用全局规则配置
+    // 不再需要调用 setup_flash_rules
     
     // 运行测试用例
     return run_test_case(dm, &flash_test_case);

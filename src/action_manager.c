@@ -14,49 +14,75 @@ typedef struct rule_provider_node {
 // 全局规则提供者链表头
 static rule_provider_node_t* g_rule_providers = NULL;
 
-// 创建目标处理动作
-action_target_t* action_target_create(action_type_t type, device_type_id_t device_type, int device_id,
-                                     uint32_t addr, uint32_t value, uint32_t mask, 
-                                     action_callback_t callback, void* callback_data) {
-    action_target_t* target = (action_target_t*)calloc(1, sizeof(action_target_t));
-    if (!target) return NULL;
+// 创建目标动作数组
+action_target_array_t* action_target_array_create(int initial_capacity) {
+    if (initial_capacity <= 0) initial_capacity = 4; // 默认初始容量
     
-    target->type = type;
-    target->device_type = device_type;
-    target->device_id = device_id;
-    target->target_addr = addr;
-    target->target_value = value;
-    target->target_mask = mask;
-    target->callback = callback;
-    target->callback_data = callback_data;
-    target->next = NULL;
+    action_target_array_t* array = (action_target_array_t*)calloc(1, sizeof(action_target_array_t));
+    if (!array) return NULL;
+    
+    array->targets = (action_target_t*)calloc(initial_capacity, sizeof(action_target_t));
+    if (!array->targets) {
+        free(array);
+        return NULL;
+    }
+    
+    array->count = 0;
+    array->capacity = initial_capacity;
+    
+    return array;
+}
+
+// 初始化目标动作数组
+void action_target_array_init(action_target_array_t* array) {
+    if (!array) return;
+    memset(array, 0, sizeof(action_target_array_t));
+}
+
+// 添加目标动作到数组
+int action_target_array_add(action_target_array_t* array, const action_target_t* target) {
+    if (!array || !target) return -1;
+    
+    // 检查是否已达到最大容量
+    if (array->count >= MAX_ACTION_TARGETS) {
+        printf("Error: Action target array is full (max %d targets)\n", MAX_ACTION_TARGETS);
+        return -1;
+    }
+    
+    // 复制目标动作到数组
+    memcpy(&array->targets[array->count], target, sizeof(action_target_t));
+    array->count++;
+    
+    return 0;
+}
+
+// 销毁目标动作数组
+void action_target_array_destroy(action_target_array_t* array) {
+    if (!array) return;
+    
+    if (array->targets) {
+        free(array->targets);
+    }
+    
+    free(array);
+}
+
+// 创建单个目标动作
+action_target_t action_target_create(action_type_t type, device_type_id_t device_type, int device_id,
+                                   uint32_t addr, uint32_t value, uint32_t mask, 
+                                   action_callback_t callback, void* callback_data) {
+    action_target_t target;
+    
+    target.type = type;
+    target.device_type = device_type;
+    target.device_id = device_id;
+    target.target_addr = addr;
+    target.target_value = value;
+    target.target_mask = mask;
+    target.callback = callback;
+    target.callback_data = callback_data;
     
     return target;
-}
-
-// 添加目标处理动作到链表
-void action_target_add(action_target_t** head, action_target_t* target) {
-    if (!head || !target) return;
-    
-    if (*head == NULL) {
-        *head = target;
-    } else {
-        action_target_t* current = *head;
-        while (current->next) {
-            current = current->next;
-        }
-        current->next = target;
-    }
-}
-
-// 销毁目标处理动作链表
-void action_target_destroy(action_target_t* targets) {
-    action_target_t* current = targets;
-    while (current) {
-        action_target_t* next = current->next;
-        free(current);
-        current = next;
-    }
 }
 
 // 创建规则触发条件
@@ -70,7 +96,7 @@ rule_trigger_t rule_trigger_create(uint32_t addr, uint32_t value, uint32_t mask)
 
 // 创建规则表项
 rule_table_entry_t* rule_table_entry_create(const char* name, rule_trigger_t trigger, 
-                                          action_target_t* targets, int priority) {
+                                          action_target_array_t targets, int priority) {
     rule_table_entry_t* entry = (rule_table_entry_t*)calloc(1, sizeof(rule_table_entry_t));
     if (!entry) return NULL;
     
@@ -89,7 +115,7 @@ rule_table_entry_t* rule_table_entry_create(const char* name, rule_trigger_t tri
     // 设置触发条件
     entry->trigger = trigger;
     
-    // 设置目标处理动作链表
+    // 设置目标处理动作数组
     entry->targets = targets;
     
     // 设置优先级
@@ -107,35 +133,21 @@ void rule_table_entry_destroy(rule_table_entry_t* entry) {
         free((void*)entry->name);
     }
     
-    // 释放目标处理动作链表
-    action_target_destroy(entry->targets);
+    // 释放目标处理动作数组
+    action_target_array_destroy(&entry->targets);
     
     // 释放表项本身
     free(entry);
 }
 
-// 复制目标处理动作链表
-static action_target_t* action_target_copy_list(const action_target_t* src) {
+// 复制目标处理动作数组
+static action_target_t* action_target_copy_array(const action_target_t* src) {
     if (!src) return NULL;
     
-    action_target_t* head = NULL;
-    const action_target_t* current = src;
+    action_target_t* head = (action_target_t*)malloc(MAX_ACTION_TARGETS * sizeof(action_target_t));
+    if (!head) return NULL;
     
-    while (current) {
-        action_target_t* new_target = action_target_create(
-            current->type, current->device_type, current->device_id,
-            current->target_addr, current->target_value, current->target_mask,
-            current->callback, current->callback_data
-        );
-        
-        if (!new_target) {
-            action_target_destroy(head);
-            return NULL;
-        }
-        
-        action_target_add(&head, new_target);
-        current = current->next;
-    }
+    memcpy(head, src, MAX_ACTION_TARGETS * sizeof(action_target_t));
     
     return head;
 }
@@ -159,7 +171,7 @@ void action_manager_destroy(action_manager_t* am) {
     // 清理所有规则
     if (am->rules) {
         for (int i = 0; i < am->rule_count; i++) {
-            action_target_destroy(am->rules[i].targets);
+            action_target_array_destroy(&am->rules[i].targets);
         }
         free(am->rules);
         am->rules = NULL;
@@ -182,28 +194,36 @@ void action_manager_register_provider(const rule_provider_t* provider) {
     g_rule_providers = node;
 }
 
-// 加载所有规则
+// 修改加载规则的函数，使用全局规则配置
 int action_manager_load_all_rules(action_manager_t* am) {
     if (!am) return -1;
     
-    rule_provider_node_t* curr = g_rule_providers;
-    while (curr) {
-        if (curr->provider && curr->provider->get_rules && curr->provider->get_rule_count) {
-            const rule_table_entry_t* rules = curr->provider->get_rules();
-            int count = curr->provider->get_rule_count();
-            
-            if (rules && count > 0) {
-                printf("Loading rules from provider: %s\n", curr->provider->provider_name);
-                if (action_manager_add_rules_from_table(am, rules, count) != 0) {
-                    printf("Failed to load rules from provider: %s\n", curr->provider->provider_name);
-                    return -1;
-                }
-            }
-        }
-        curr = curr->next;
+    // 使用全局规则配置
+    int total_rules = 0;
+    
+    // 加载 Flash 设备规则
+    int count;
+    const rule_table_entry_t* rules = get_device_rules(DEVICE_TYPE_FLASH, &count);
+    if (rules && count > 0) {
+        action_manager_add_rules_from_table(am, rules, count);
+        total_rules += count;
     }
     
-    return 0;
+    // 加载温度传感器设备规则
+    rules = get_device_rules(DEVICE_TYPE_TEMP_SENSOR, &count);
+    if (rules && count > 0) {
+        action_manager_add_rules_from_table(am, rules, count);
+        total_rules += count;
+    }
+    
+    // 加载 FPGA 设备规则
+    rules = get_device_rules(DEVICE_TYPE_FPGA, &count);
+    if (rules && count > 0) {
+        action_manager_add_rules_from_table(am, rules, count);
+        total_rules += count;
+    }
+    
+    return total_rules;
 }
 
 // 从规则表批量添加规则
@@ -237,12 +257,12 @@ int action_manager_add_rules_from_table(action_manager_t* am, const rule_table_e
         rule->trigger = entry->trigger;
         rule->priority = entry->priority;
         
-        // 复制目标处理动作链表
-        rule->targets = action_target_copy_list(entry->targets);
-        if (entry->targets && !rule->targets) {
+        // 复制目标处理动作数组
+        rule->targets = action_target_copy_array(&entry->targets.targets[0]);
+        if (!rule->targets) {
             // 如果复制失败，清理已分配的资源
             for (int j = 0; j < i; j++) {
-                action_target_destroy(am->rules[am->rule_count + j].targets);
+                action_target_array_destroy(&am->rules[am->rule_count + j].targets);
             }
             pthread_mutex_unlock(&am->mutex);
             return -1;
@@ -277,9 +297,9 @@ int action_manager_add_rule(action_manager_t* am, action_rule_t* rule) {
     new_rule->trigger = rule->trigger;
     new_rule->priority = rule->priority;
     
-    // 复制目标处理动作链表
-    new_rule->targets = action_target_copy_list(rule->targets);
-    if (rule->targets && !new_rule->targets) {
+    // 复制目标处理动作数组
+    new_rule->targets = action_target_copy_array(&rule->targets.targets[0]);
+    if (!new_rule->targets) {
         pthread_mutex_unlock(&am->mutex);
         return -1;
     }
@@ -296,8 +316,8 @@ void action_manager_remove_rule(action_manager_t* am, int rule_id) {
     pthread_mutex_lock(&am->mutex);
     for (int i = 0; i < am->rule_count; i++) {
         if (am->rules[i].rule_id == rule_id) {
-            // 清理目标处理动作链表
-            action_target_destroy(am->rules[i].targets);
+            // 清理目标处理动作数组
+            action_target_array_destroy(&am->rules[i].targets);
             
             // 移动后面的规则
             if (i < am->rule_count - 1) {
@@ -375,13 +395,13 @@ static void execute_action_target(action_target_t* target, device_manager_t* dm)
     }
 }
 
+// 执行规则
 void action_manager_execute_rule(action_manager_t* am, action_rule_t* rule, device_manager_t* dm) {
     if (!am || !rule || !dm) return;
     
     // 执行所有目标处理动作
-    action_target_t* current = rule->targets;
-    while (current) {
-        execute_action_target(current, dm);
-        current = current->next;
+    for (int i = 0; i < rule->targets.count; i++) {
+        action_target_t* target = &rule->targets.targets[i];
+        execute_action_target(target, dm);
     }
 }

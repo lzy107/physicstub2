@@ -67,9 +67,9 @@ device_memory_t* device_memory_create_from_config(memory_region_config_t* config
 }
 
 // 创建设备内存
-device_memory_t* device_memory_create(memory_region_t* regions, int region_count, 
-                                     struct global_monitor_t* monitor, 
-                                     device_type_id_t device_type, int device_id) {
+device_memory_t* device_memory_create(const memory_region_t* regions, int region_count, 
+                                    struct global_monitor_t* monitor, 
+                                    device_type_id_t device_type, int device_id) {
     if (!regions || region_count <= 0) return NULL;
     
     device_memory_t* mem = (device_memory_t*)calloc(1, sizeof(device_memory_t));
@@ -82,16 +82,15 @@ device_memory_t* device_memory_create(memory_region_t* regions, int region_count
         return NULL;
     }
     
-    // 复制区域信息并分配每个区域的内存
+    // 复制区域配置并分配数据内存
     for (int i = 0; i < region_count; i++) {
         mem->regions[i].base_addr = regions[i].base_addr;
         mem->regions[i].unit_size = regions[i].unit_size;
         mem->regions[i].length = regions[i].length;
         
-        // 计算区域总大小并分配内存
-        size_t region_size = regions[i].unit_size * regions[i].length;
-        mem->regions[i].data = (uint8_t*)calloc(region_size, sizeof(uint8_t));
-        
+        // 分配数据内存
+        size_t data_size = regions[i].unit_size * regions[i].length;
+        mem->regions[i].data = (uint8_t*)calloc(1, data_size);
         if (!mem->regions[i].data) {
             // 清理已分配的内存
             for (int j = 0; j < i; j++) {

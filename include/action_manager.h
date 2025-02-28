@@ -6,6 +6,9 @@
 #include <stdint.h>
 #include "device_types.h"
 
+// 定义最大目标动作数量
+#define MAX_ACTION_TARGETS 32
+
 // 动作类型
 typedef enum {
     ACTION_TYPE_NONE = 0,
@@ -27,8 +30,13 @@ typedef struct action_target {
     uint32_t target_mask;         // 目标掩码
     action_callback_t callback;   // 回调函数
     void* callback_data;          // 回调数据
-    struct action_target* next;   // 下一个目标处理动作
 } action_target_t;
+
+// 目标动作数组结构
+typedef struct {
+    action_target_t targets[MAX_ACTION_TARGETS]; // 固定大小的目标动作数组
+    int count;                                  // 数组中的目标数量
+} action_target_array_t;
 
 // 规则触发条件
 typedef struct {
@@ -37,22 +45,22 @@ typedef struct {
     uint32_t expected_mask;       // 期望掩码
 } rule_trigger_t;
 
-// 动作规则
-typedef struct {
+// 规则表项结构
+typedef struct rule_table_entry {
+    const char* name;             // 规则名称
+    rule_trigger_t trigger;       // 触发条件
+    action_target_array_t targets; // 目标处理动作数组（直接包含，不是指针）
+    int priority;                 // 优先级
+} rule_table_entry_t;
+
+// 动作规则结构
+typedef struct action_rule {
     int rule_id;                  // 规则ID
     const char* name;             // 规则名称
     rule_trigger_t trigger;       // 触发条件
-    action_target_t* targets;     // 目标处理动作链表
+    action_target_array_t targets; // 目标处理动作数组（直接包含，不是指针）
     int priority;                 // 优先级
 } action_rule_t;
-
-// 规则表项 - 重构后的结构
-typedef struct {
-    const char* name;             // 规则名称
-    rule_trigger_t trigger;       // 触发条件子结构体
-    action_target_t* targets;     // 目标处理动作链表
-    int priority;                 // 优先级
-} rule_table_entry_t;
 
 // 规则提供者接口
 typedef struct {

@@ -7,6 +7,8 @@
 #include "../include/device_memory.h"
 #include "../include/action_manager.h"
 #include "../include/device_rules.h"
+#include "../include/device_configs.h"
+#include "../include/device_rule_configs.h"
 
 // 注册FLASH设备
 REGISTER_DEVICE(DEVICE_TYPE_FLASH, "FLASH", get_flash_device_ops);
@@ -47,21 +49,19 @@ static int flash_init(device_instance_t* instance) {
     // 初始化互斥锁
     pthread_mutex_init(&dev_data->mutex, NULL);
     
-    // 定义内存区域
-    memory_region_t regions[2];
-    
-    // 寄存器区域
-    regions[0].base_addr = 0x00;
-    regions[0].unit_size = 4;  // 4字节单位
-    regions[0].length = 8;     // 8个寄存器
-    
-    // 数据区域
-    regions[1].base_addr = FLASH_DATA_START;
-    regions[1].unit_size = 4;  // 4字节单位
-    regions[1].length = (FLASH_MEM_SIZE - FLASH_DATA_START) / 4;  // 剩余空间
+    // 获取设备内存配置
+    int region_count;
+    const memory_region_t* regions = get_device_memory_regions(DEVICE_TYPE_FLASH, &region_count);
     
     // 创建设备内存
-    dev_data->memory = device_memory_create(regions, 2, NULL, DEVICE_TYPE_FLASH, instance->dev_id);
+    dev_data->memory = device_memory_create(
+        regions, 
+        region_count, 
+        NULL, 
+        DEVICE_TYPE_FLASH, 
+        instance->dev_id
+    );
+    
     if (!dev_data->memory) {
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);
@@ -71,7 +71,8 @@ static int flash_init(device_instance_t* instance) {
     // 初始化所有数据区域为0xFF（FLASH擦除状态）
     for (int i = 0; i < dev_data->memory->region_count; i++) {
         memory_region_t* region = &dev_data->memory->regions[i];
-        if (region->base_addr == FLASH_DATA_START) {
+        // 检查是否是数据区域（基地址大于等于FLASH_DATA_START）
+        if (region->base_addr >= FLASH_DATA_START) {
             // 只初始化数据区域
             memset(region->data, 0xFF, region->unit_size * region->length);
         }
@@ -86,6 +87,13 @@ static int flash_init(device_instance_t* instance) {
     
     // 初始化规则计数器
     dev_data->rule_count = 0;
+    
+    // 初始化设备规则
+    device_rule_manager_t* rule_manager = flash_get_rule_manager(instance);
+    if (rule_manager) {
+        // 使用全局规则配置设置规则
+        dev_data->rule_count = setup_device_rules(rule_manager, DEVICE_TYPE_FLASH);
+    }
     
     instance->private_data = dev_data;
     return 0;

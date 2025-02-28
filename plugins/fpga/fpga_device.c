@@ -6,6 +6,7 @@
 #include "../include/device_registry.h"
 #include "../include/action_manager.h"
 #include "../include/device_rules.h"
+#include "../include/device_rule_configs.h"
 
 // 注册FPGA设备
 REGISTER_DEVICE(DEVICE_TYPE_FPGA, "FPGA", get_fpga_device_ops);
@@ -17,49 +18,32 @@ static void fpga_irq_callback(void* data) {
     }
 }
 
-// FPGA设备规则表
-static rule_table_entry_t fpga_rules[1];
-
-// 初始化FPGA规则表
-static void init_fpga_rules(void) {
-    // 创建目标处理动作
-    action_target_t* target = action_target_create(
-        ACTION_TYPE_CALLBACK,
-        DEVICE_TYPE_FPGA,
-        0,
-        0,
-        0,
-        0,
-        fpga_irq_callback,
-        NULL
-    );
-    
-    // 创建规则触发条件
-    rule_trigger_t trigger = rule_trigger_create(FPGA_IRQ_REG, 1, 0xFF);
-    
-    // 设置规则
-    fpga_rules[0].name = "FPGA IRQ Handler";
-    fpga_rules[0].trigger = trigger;
-    fpga_rules[0].targets = target;
-    fpga_rules[0].priority = 2;
-}
-
-// 获取FPGA规则表
-static const rule_table_entry_t* get_fpga_rules(void) {
-    return fpga_rules;
-}
-
-// 获取FPGA规则数量
-static int get_fpga_rule_count(void) {
-    return sizeof(fpga_rules) / sizeof(fpga_rules[0]);
-}
-
-// 规则提供者
-static rule_provider_t fpga_rule_provider = {
-    .provider_name = "FPGA Rules",
-    .get_rules = get_fpga_rules,
-    .get_rule_count = get_fpga_rule_count
+// FPGA 设备内存区域全局配置
+static const memory_region_t fpga_memory_regions[] = {
+    // 寄存器区域
+    {
+        .base_addr = 0x00,
+        .unit_size = 4,  // 4字节单位
+        .length = 16,    // 16个寄存器
+        .data = NULL     // 初始化时分配
+    },
+    // 配置区域
+    {
+        .base_addr = FPGA_CONFIG_START,
+        .unit_size = 4,  // 4字节单位
+        .length = (FPGA_DATA_START - FPGA_CONFIG_START) / 4,
+        .data = NULL     // 初始化时分配
+    },
+    // 数据区域
+    {
+        .base_addr = FPGA_DATA_START,
+        .unit_size = 4,  // 4字节单位
+        .length = (FPGA_MEM_SIZE - FPGA_DATA_START) / 4,
+        .data = NULL     // 初始化时分配
+    }
 };
+
+#define FPGA_REGION_COUNT (sizeof(fpga_memory_regions) / sizeof(fpga_memory_regions[0]))
 
 // 私有函数声明
 static int fpga_init(device_instance_t* instance);
@@ -165,12 +149,6 @@ static void* fpga_worker_thread(void* arg) {
 static int fpga_init(device_instance_t* instance) {
     if (!instance) return -1;
     
-    // 初始化规则表
-    init_fpga_rules();
-    
-    // 注册规则提供者
-    action_manager_register_provider(&fpga_rule_provider);
-    
     // 分配设备私有数据
     fpga_dev_data_t* dev_data = (fpga_dev_data_t*)calloc(1, sizeof(fpga_dev_data_t));
     if (!dev_data) return -1;
@@ -182,30 +160,34 @@ static int fpga_init(device_instance_t* instance) {
     // 初始化规则计数器
     dev_data->rule_count = 0;
     
-    // 定义内存区域
-    memory_region_t regions[2];
+    // 创建设备内存（使用全局配置）
+    dev_data->memory = device_memory_create(
+        fpga_memory_regions, 
+        FPGA_REGION_COUNT, 
+        NULL, 
+        DEVICE_TYPE_FPGA, 
+        instance->dev_id
+    );
     
-    // 寄存器区域
-    regions[0].base_addr = 0x00;
-    regions[0].unit_size = 4;  // 4字节单位
-    regions[0].length = FPGA_DATA_START / 4;  // 寄存器区域大小
-    
-    // 数据区域
-    regions[1].base_addr = FPGA_DATA_START;
-    regions[1].unit_size = 4;  // 4字节单位
-    regions[1].length = 0x2000 / 4;  // 数据区域大小
-    
-    // 创建设备内存
-    dev_data->memory = device_memory_create(regions, 2, NULL, DEVICE_TYPE_FPGA, instance->dev_id);
     if (!dev_data->memory) {
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);
         return -1;
     }
     
-    // 设置初始状态
+    // 初始化寄存器区域
     uint32_t status = STATUS_READY;
     device_memory_write(dev_data->memory, FPGA_STATUS_REG, status);
+    device_memory_write(dev_data->memory, FPGA_CONFIG_REG, 0);
+    device_memory_write(dev_data->memory, FPGA_CONTROL_REG, 0);
+    device_memory_write(dev_data->memory, FPGA_IRQ_REG, 0);
+    
+    // 初始化设备规则
+    device_rule_manager_t* rule_manager = fpga_get_rule_manager(instance);
+    if (rule_manager) {
+        // 使用全局规则配置设置规则
+        dev_data->rule_count = setup_device_rules(rule_manager, DEVICE_TYPE_FPGA);
+    }
     
     // 启动工作线程
     if (pthread_create(&dev_data->worker_thread, NULL, fpga_worker_thread, instance) != 0) {
