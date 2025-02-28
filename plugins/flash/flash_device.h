@@ -3,10 +3,10 @@
 #define FLASH_DEVICE_H
 
 #include <stdint.h>
-#include "../include/device_types.h"
-#include "../include/device_memory.h"
-#include "../include/global_monitor.h"
-#include "../include/device_rules.h"
+#include "include/device_types.h"
+#include "include/device_memory.h"
+#include "include/global_monitor.h"
+#include "include/device_rules.h"
 
 // FLASH 设备寄存器地址
 #define FLASH_REG_STATUS    0x00  // 状态寄存器

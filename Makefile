@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -I./include
+CFLAGS = -Wall -Wextra -I./include -I. -Iplugins
 SRC_DIR = src
 BUILD_DIR = build
 PLUGINS_DIR = plugins
