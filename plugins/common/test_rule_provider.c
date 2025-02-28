@@ -37,58 +37,23 @@ static rule_provider_t test_provider = {
 
 // 初始化测试规则
 void init_test_rules(void) {
-    // 创建第一个规则的目标处理动作
-    action_target_t* target1 = action_target_create(
-        ACTION_TYPE_CALLBACK, 
-        DEVICE_TYPE_FLASH, 
-        0, 
-        0, 
-        0, 
-        0, 
-        test_callback, 
-        NULL
-    );
+    // 创建规则时使用全局配置机制
     
-    // 创建第一个规则
+    // 第一个规则 - 使用rule_trigger创建，而不是直接使用action_target_create
     rule_trigger_t trigger1 = rule_trigger_create(0x1000, 0x55AA, 0xFFFF);
     test_rules[0].name = "Test Rule 1";
     test_rules[0].trigger = trigger1;
-    test_rules[0].targets = target1;
+    test_rules[0].targets = NULL;  // 目标将通过全局规则配置提供
     test_rules[0].priority = 100;
     
-    // 创建第二个规则的目标处理动作
-    action_target_t* target2 = action_target_create(
-        ACTION_TYPE_CALLBACK, 
-        DEVICE_TYPE_FLASH, 
-        0, 
-        0, 
-        0, 
-        0, 
-        test_callback, 
-        NULL
-    );
-    
-    // 添加第二个目标处理动作（写入操作）
-    action_target_t* target3 = action_target_create(
-        ACTION_TYPE_WRITE, 
-        DEVICE_TYPE_TEMP_SENSOR, 
-        0, 
-        CONFIG_REG, 
-        0x0001,  // 设置报警标志
-        0x0001, 
-        NULL, 
-        NULL
-    );
-    
-    // 将目标处理动作链接起来
-    action_target_add(&target2, target3);
-    
-    // 创建第二个规则
-    rule_trigger_t trigger2 = rule_trigger_create(TEMP_REG, 0x0050, 0x00FF);
-    test_rules[1].name = "Temperature Alert Rule";
+    // 第二个规则
+    rule_trigger_t trigger2 = rule_trigger_create(CONFIG_REG, 0x0001, 0x0001);
+    test_rules[1].name = "Test Rule 2";
     test_rules[1].trigger = trigger2;
-    test_rules[1].targets = target2;
-    test_rules[1].priority = 200;
+    test_rules[1].targets = NULL;  // 目标将通过全局规则配置提供
+    test_rules[1].priority = 50;
+    
+    printf("测试规则已初始化，将通过全局规则配置机制应用\n");
 }
 
 // 注册测试规则提供者

@@ -72,22 +72,10 @@ static const test_case_t fpga_test_case = {
 // 设置FPGA监视点和规则
 void setup_fpga_rules(global_monitor_t* gm, action_manager_t* am) {
     (void)am; // 避免未使用参数警告
+    (void)gm; // 避免未使用参数警告
     
-    // 创建FPGA规则的目标处理动作
-    action_target_t* target = action_target_create(
-        ACTION_TYPE_CALLBACK, 
-        DEVICE_TYPE_FPGA, 
-        0, 
-        0, 
-        0, 
-        0, 
-        fpga_irq_callback, 
-        NULL
-    );
-    
-    // 设置监视点和规则
-    global_monitor_setup_watch_rule(gm, DEVICE_TYPE_FPGA, 0, 0x1000, 
-                                   0x55AA, 0xFFFF, target);
+    // 因使用全局规则配置，不再需要手动创建目标处理动作
+    printf("FPGA规则将通过全局规则配置加载，无需手动创建\n");
 }
 
 // 设置自定义规则
@@ -95,22 +83,10 @@ void setup_custom_fpga_rule(global_monitor_t* gm, action_manager_t* am, device_t
     (void)trigger_device_type; // 避免未使用参数警告
     (void)trigger_addr; // 避免未使用参数警告
     (void)am; // 避免未使用参数警告
+    (void)gm; // 避免未使用参数警告
     
-    // 创建目标处理动作 - 写入0xDEADBEEF到0x2000地址
-    action_target_t* custom_target = action_target_create(
-        ACTION_TYPE_WRITE, 
-        DEVICE_TYPE_FPGA, 
-        0, 
-        0x2000, 
-        0xDEADBEEF, 
-        0xFFFFFFFF, 
-        NULL, 
-        NULL
-    );
-    
-    // 设置监视点和规则 - 监控FPGA_IRQ_REG寄存器
-    global_monitor_setup_watch_rule(gm, DEVICE_TYPE_FPGA, 0, FPGA_IRQ_REG, 
-                                   0x01, 0xFF, custom_target);
+    // 因使用全局规则配置，不再需要手动创建目标处理动作
+    printf("自定义FPGA规则将通过全局规则配置加载，无需手动创建\n");
 }
 
 // 运行FPGA设备测试

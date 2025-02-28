@@ -70,36 +70,11 @@ static const test_case_t temp_sensor_test_case = {
 void setup_temp_sensor_rules(global_monitor_t* gm, action_manager_t* am) {
     (void)am; // 避免未使用参数警告
     
-    // 创建温度报警规则的目标处理动作
-    action_target_t* target = action_target_create(
-        ACTION_TYPE_CALLBACK, 
-        DEVICE_TYPE_TEMP_SENSOR, 
-        0, 
-        0, 
-        0, 
-        0, 
-        temp_alert_callback, 
-        NULL
-    );
+    // 因使用全局规则配置，不再需要手动创建目标处理动作
+    printf("温度传感器规则将通过全局规则配置加载，无需手动创建\n");
     
-    // 添加第二个目标处理动作（写入操作）
-    action_target_t* target2 = action_target_create(
-        ACTION_TYPE_WRITE, 
-        DEVICE_TYPE_TEMP_SENSOR, 
-        0, 
-        CONFIG_REG,
-        0x0001,  // 设置报警标志
-        0x0001, 
-        NULL, 
-        NULL
-    );
-    
-    // 将目标处理动作链接起来
-    action_target_add(&target, target2);
-    
-    // 设置监视点和规则
-    global_monitor_setup_watch_rule(gm, DEVICE_TYPE_TEMP_SENSOR, 0, TEMP_REG, 
-                                   0x50, 0xFF, target);
+    // 如果需要添加额外的全局监视点，可以在这里添加
+    // 例如：global_monitor_add_watch(gm, DEVICE_TYPE_TEMP_SENSOR, 0, STATUS_REG);
 }
 
 // 运行温度传感器测试
