@@ -5,14 +5,17 @@ BUILD_DIR = build
 PLUGINS_DIR = plugins
 
 # 源文件
-SRCS = src/main.c \
-       src/device_registry.c \
-       src/device_memory.c \
-       src/global_monitor.c \
-       src/action_manager.c \
-       src/device_rules.c \
-       src/device_configs.c \
-       src/device_rule_configs.c \
+SRCS = src/core/main.c \
+       src/core/address_space.c \
+       src/device/device_registry.c \
+       src/device/device_memory.c \
+       src/device/device_types.c \
+       src/device/device_configs.c \
+       src/monitor/global_monitor.c \
+       src/monitor/action_manager.c \
+       src/monitor/device_rules.c \
+       src/monitor/device_rule_configs.c \
+       src/test/device_test.c \
        plugins/flash/flash_device.c \
        plugins/flash/flash_configs.c \
        plugins/flash/flash_rule_configs.c \
@@ -24,7 +27,7 @@ SRCS = src/main.c \
        plugins/fpga/fpga_rule_configs.c
 
 # 目标文件
-OBJS = $(SRCS:$(SRC_DIR)/%.c=$(BUILD_DIR)/%.o)
+OBJS = $(SRCS:%.c=$(BUILD_DIR)/%.o)
 FLASH_OBJS = $(FLASH_SRCS:$(PLUGINS_DIR)/flash/%.c=$(BUILD_DIR)/plugins/flash/%.o)
 FPGA_OBJS = $(FPGA_SRCS:$(PLUGINS_DIR)/fpga/%.c=$(BUILD_DIR)/plugins/fpga/%.o)
 TEMP_SENSOR_OBJS = $(TEMP_SENSOR_SRCS:$(PLUGINS_DIR)/temp_sensor/%.c=$(BUILD_DIR)/plugins/temp_sensor/%.o)
@@ -39,8 +42,8 @@ $(BUILD_DIR)/$(TARGET): $(ALL_OBJS)
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(ALL_OBJS) -o $@ -lpthread
 
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
-	@mkdir -p $(BUILD_DIR)
+$(BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/plugins/flash/%.o: $(PLUGINS_DIR)/flash/%.c
