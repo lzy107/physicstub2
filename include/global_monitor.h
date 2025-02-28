@@ -50,6 +50,10 @@ void global_monitor_handle_address_range_changes(global_monitor_t* gm, device_ty
 // 添加监视点并设置规则
 int global_monitor_setup_watch_rule(global_monitor_t* gm, device_type_id_t device_type, 
                                    int device_id, uint32_t addr, uint32_t expected_value, 
-                                   uint32_t expected_mask, action_target_t* targets);
+                                   uint32_t expected_mask, const action_target_array_t* targets);
+
+// 记录内存访问
+void memory_access_record(global_monitor_t* monitor, uint32_t addr, uint32_t value, 
+                         int is_write, uint32_t device_type, uint32_t device_id);
 
 #endif /* GLOBAL_MONITOR_H */

@@ -33,7 +33,15 @@ int device_rule_add(device_rule_manager_t* manager, uint32_t addr,
     rule->addr = addr;
     rule->expected_value = expected_value;
     rule->expected_mask = expected_mask;
-    memcpy(&rule->targets, targets, sizeof(action_target_array_t)); // 直接复制整个数组
+    
+    // 为targets分配内存并复制内容
+    rule->targets = (action_target_array_t*)malloc(sizeof(action_target_array_t));
+    if (!rule->targets) {
+        pthread_mutex_unlock(manager->mutex);
+        return -1;
+    }
+    memcpy(rule->targets, targets, sizeof(action_target_array_t));
+    
     rule->active = 1;
     
     manager->rule_count++;

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "device_types.h"
+#include "device_rules.h"
 
 device_manager_t* device_manager_init(void) {
     device_manager_t* dm = (device_manager_t*)calloc(1, sizeof(device_manager_t));

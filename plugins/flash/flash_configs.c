@@ -30,7 +30,7 @@ int flash_configure_memory(device_instance_t* instance, memory_region_config_t* 
         return -1;
     }
     
-    flash_dev_data_t* dev_data = (flash_dev_data_t*)instance->private_data;
+    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
     if (!dev_data) {
         return -1;
     }
@@ -48,9 +48,9 @@ int flash_configure_memory(device_instance_t* instance, memory_region_config_t* 
     }
     
     // 初始化寄存器
-    device_memory_write(dev_data->memory, FLASH_REG_STATUS, STATUS_READY);
+    device_memory_write(dev_data->memory, FLASH_REG_STATUS, FLASH_STATUS_READY);
     device_memory_write(dev_data->memory, FLASH_REG_CONFIG, 0);
-    device_memory_write(dev_data->memory, FLASH_REG_ADDR, 0);
+    device_memory_write(dev_data->memory, FLASH_REG_ADDRESS, 0);
     device_memory_write(dev_data->memory, FLASH_REG_DATA, 0);
     device_memory_write(dev_data->memory, FLASH_REG_SIZE, FLASH_MEM_SIZE);
     

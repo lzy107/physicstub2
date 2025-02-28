@@ -5,22 +5,20 @@
 #include <pthread.h>
 
 // 前向声明
-struct action_target;
-typedef struct action_target action_target_t;
 struct action_target_array;
 typedef struct action_target_array action_target_array_t;
 
 // 设备规则结构
-typedef struct {
+typedef struct device_rule {
     uint32_t addr;                  // 监控地址
     uint32_t expected_value;        // 期望值
     uint32_t expected_mask;         // 掩码
-    action_target_array_t targets;  // 目标动作数组（直接包含，不是指针）
+    action_target_array_t* targets; // 目标动作数组（指针）
     int active;                     // 规则是否激活
 } device_rule_t;
 
 // 设备规则管理器
-typedef struct {
+typedef struct device_rule_manager {
     pthread_mutex_t* mutex;         // 互斥锁
     device_rule_t* rules;           // 规则数组
     int rule_count;                 // 规则数量

@@ -1,6 +1,10 @@
 #include "../../include/device_configs.h"
 #include "fpga_device.h"
 
+// 定义FPGA内存区域常量
+#define FPGA_CONFIG_START 0x100
+#define FPGA_MEM_SIZE     0x10000
+
 // FPGA 设备内存区域配置
 const memory_region_t fpga_memory_regions[] = {
     // 寄存器区域
@@ -31,47 +35,5 @@ const memory_region_t fpga_memory_regions[] = {
         .device_id = 0    // 默认ID为0，实际使用时会被覆盖
     }
 };
-const int fpga_region_count = sizeof(fpga_memory_regions) / sizeof(fpga_memory_regions[0]);
+const int fpga_region_count = 3;
 
-// FPGA 设备内存配置函数
-int fpga_configure_memory(device_instance_t* instance, memory_region_config_t* configs, int config_count) {
-    if (!instance || !configs || config_count <= 0) {
-        return -1;
-    }
-    
-    fpga_dev_data_t* dev_data = (fpga_dev_data_t*)instance->private_data;
-    if (!dev_data) {
-        return -1;
-    }
-    
-    // 销毁现有的内存
-    if (dev_data->memory) {
-        device_memory_destroy(dev_data->memory);
-        dev_data->memory = NULL;
-    }
-    
-    // 创建新的内存
-    dev_data->memory = device_memory_create_from_config(configs, config_count, NULL, DEVICE_TYPE_FPGA, instance->dev_id);
-    if (!dev_data->memory) {
-        return -1;
-    }
-    
-    // 初始化寄存器区域
-    uint32_t status = STATUS_READY;
-    device_memory_write(dev_data->memory, FPGA_STATUS_REG, status);
-    device_memory_write(dev_data->memory, FPGA_CONFIG_REG, 0);
-    device_memory_write(dev_data->memory, FPGA_CONTROL_REG, 0);
-    device_memory_write(dev_data->memory, FPGA_IRQ_REG, 0);
-    
-    // 初始化数据区域为0
-    for (int i = 0; i < dev_data->memory->region_count; i++) {
-        memory_region_t* region = &dev_data->memory->regions[i];
-        // 检查是否是数据区域（基地址大于等于FPGA_DATA_START）
-        if (region->base_addr >= FPGA_DATA_START) {
-            // 只初始化数据区域
-            memset(region->data, 0, region->unit_size * region->length);
-        }
-    }
-    
-    return 0;
-} 

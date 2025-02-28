@@ -33,7 +33,7 @@ typedef struct action_target {
 } action_target_t;
 
 // 目标动作数组结构
-typedef struct {
+typedef struct action_target_array {
     action_target_t targets[MAX_ACTION_TARGETS]; // 固定大小的目标动作数组
     int count;                                  // 数组中的目标数量
 } action_target_array_t;
@@ -81,18 +81,15 @@ action_target_t* action_target_create(action_type_t type, device_type_id_t devic
                                      uint32_t addr, uint32_t value, uint32_t mask, 
                                      action_callback_t callback, void* callback_data);
 
-// 添加目标处理动作到链表
-void action_target_add(action_target_t** head, action_target_t* target);
-
-// 销毁目标处理动作链表
-void action_target_destroy(action_target_t* targets);
+// 添加目标处理动作到数组
+void action_target_add_to_array(action_target_array_t* array, const action_target_t* target);
 
 // 创建规则触发条件
 rule_trigger_t rule_trigger_create(uint32_t addr, uint32_t value, uint32_t mask);
 
 // 创建规则表项
 rule_table_entry_t* rule_table_entry_create(const char* name, rule_trigger_t trigger, 
-                                          action_target_t* targets, int priority);
+                                          const action_target_array_t* targets, int priority);
 
 // 销毁规则表项
 void rule_table_entry_destroy(rule_table_entry_t* entry);

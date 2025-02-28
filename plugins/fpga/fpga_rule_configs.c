@@ -40,4 +40,4 @@ const device_rule_config_t fpga_rule_configs[] = {
         .callback = fpga_config_callback
     }
 };
-const int fpga_rule_count = sizeof(fpga_rule_configs) / sizeof(fpga_rule_configs[0]); 
+const int fpga_rule_config_count = sizeof(fpga_rule_configs) / sizeof(fpga_rule_configs[0]); 

@@ -3,10 +3,11 @@
 #define FLASH_DEVICE_H
 
 #include <stdint.h>
-#include "include/device_types.h"
-#include "include/device_memory.h"
-#include "include/global_monitor.h"
-#include "include/device_rules.h"
+#include "device_types.h"
+#include "device_memory.h"
+#include "global_monitor.h"
+#include "device_rules.h"
+#include "action_manager.h"
 
 // FLASH 设备寄存器地址
 #define FLASH_REG_STATUS    0x00  // 状态寄存器
@@ -39,12 +40,21 @@
 #define FLASH_DATA_REGION   1  // 数据区域索引
 #define FLASH_REGION_COUNT  2  // 内存区域总数
 
-// Flash设备私有数据
+// FLASH 设备实例结构
 typedef struct {
-    pthread_mutex_t mutex;           // 互斥锁
-    device_memory_t* memory;         // 设备内存
-    device_rule_t device_rules[8];   // 设备规则
-    int rule_count;                  // 规则计数
+    device_instance_t base;  // 基础设备实例
+    device_memory_t* memory;      // 设备内存
+    uint32_t status;              // 当前状态
+    uint32_t control;             // 当前控制值
+    uint32_t config;              // 当前配置
+    uint32_t address;             // 当前地址
+    uint32_t size;                // 设备大小
+    pthread_mutex_t mutex;        // 互斥锁
+    
+    // 设备特定规则
+    device_rule_t device_rules[8];    // 支持最多8个内置规则
+    int rule_count;                   // 当前规则数量
+    device_rule_manager_t rule_manager; // 规则管理器
 } flash_device_t;
 
 // 获取 FLASH 设备操作接口
@@ -54,20 +64,9 @@ device_ops_t* get_flash_device_ops(void);
 void register_flash_device_type(device_manager_t* dm);
 
 // 向Flash设备添加规则
-int flash_device_add_rule(device_instance_t* instance, uint32_t addr, 
-                         uint32_t expected_value, uint32_t expected_mask, 
-                         action_target_t* targets);
-
-// 函数声明
-int flash_device_init(device_instance_t* instance);
-void flash_device_destroy(device_instance_t* instance);
-int flash_device_read(device_instance_t* instance, uint32_t addr, uint32_t* value);
-int flash_device_write(device_instance_t* instance, uint32_t addr, uint32_t value);
-int flash_device_read_buffer(device_instance_t* instance, uint32_t addr, uint8_t* buffer, size_t length);
-int flash_device_write_buffer(device_instance_t* instance, uint32_t addr, const uint8_t* buffer, size_t length);
-int flash_device_reset(device_instance_t* instance);
-struct device_rule_manager* flash_get_rule_manager(device_instance_t* instance);
-int flash_configure_memory(device_instance_t* instance, struct memory_region_config_t* configs, int config_count);
+int flash_add_rule(device_instance_t* instance, uint32_t addr, 
+                  uint32_t expected_value, uint32_t expected_mask, 
+                  const action_target_array_t* targets);
 
 // 回调函数
 void flash_erase_callback(void* context, uint32_t addr, uint32_t value);

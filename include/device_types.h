@@ -5,11 +5,11 @@
 #include <stdint.h>
 #include <pthread.h>
 #include "address_space.h"
-#include "device_rules.h"
 
 // 前向声明
-struct device_manager;
 struct device_rule_manager;
+struct device_rule;
+typedef struct device_rule device_rule_t;
 
 // 从device_memory.h引入memory_region_config_t结构体
 typedef struct memory_region_config {
@@ -57,7 +57,7 @@ typedef struct {
     
     // 获取设备规则管理器的钩子函数
     struct device_rule_manager* (*get_rule_manager)(device_instance_t* instance);
-    int (*configure_memory)(device_instance_t* instance, struct memory_region_config_t* configs, int config_count);
+    int (*configure_memory)(device_instance_t* instance, memory_region_config_t* configs, int config_count);
 } device_ops_t;
 
 // 设备类型结构

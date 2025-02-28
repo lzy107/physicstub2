@@ -70,7 +70,7 @@ device_memory_t* device_memory_create_from_config(memory_region_config_t* config
 
 // 创建设备内存
 device_memory_t* device_memory_create(const memory_region_t* regions, int region_count, 
-                                     global_monitor_t* monitor, uint32_t device_type, uint32_t device_id) {
+                                     struct global_monitor_t* monitor, uint32_t device_type, uint32_t device_id) {
     if (!regions || region_count <= 0) {
         return NULL;
     }
