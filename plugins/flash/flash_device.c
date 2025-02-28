@@ -1,4 +1,5 @@
 // flash_device.c
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
@@ -17,10 +18,10 @@ REGISTER_DEVICE(DEVICE_TYPE_FLASH, "FLASH", get_flash_device_ops);
 static int flash_init(device_instance_t* instance);
 static int flash_read(device_instance_t* instance, uint32_t addr, uint32_t* value);
 static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t value);
-static void flash_reset(device_instance_t* instance);
+static int flash_reset(device_instance_t* instance);
 static void flash_destroy(device_instance_t* instance);
 static pthread_mutex_t* flash_get_mutex(device_instance_t* instance);
-static device_rule_manager_t* flash_get_rule_manager(device_instance_t* instance);
+static struct device_rule_manager* flash_get_rule_manager(device_instance_t* instance);
 static int flash_configure_memory(device_instance_t* instance, memory_region_config_t* configs, int config_count);
 
 // FLASH设备操作接口实现
@@ -31,7 +32,7 @@ static device_ops_t flash_ops = {
     .reset = flash_reset,
     .destroy = flash_destroy,
     .get_mutex = flash_get_mutex,
-    .get_rule_manager = flash_get_rule_manager,
+    .get_rule_manager = (struct device_rule_manager* (*)(device_instance_t*))flash_get_rule_manager,
     .configure_memory = flash_configure_memory
 };
 
@@ -42,20 +43,32 @@ device_ops_t* get_flash_device_ops(void) {
 
 // 初始化FLASH设备
 static int flash_init(device_instance_t* instance) {
-    if (!instance) return -1;
+    printf("开始初始化Flash设备...\n");
+    if (!instance) {
+        printf("Flash设备初始化失败：实例为空\n");
+        return -1;
+    }
     
     // 分配设备私有数据
     flash_device_t* dev_data = (flash_device_t*)calloc(1, sizeof(flash_device_t));
-    if (!dev_data) return -1;
+    if (!dev_data) {
+        printf("Flash设备初始化失败：内存分配失败\n");
+        return -1;
+    }
+    printf("Flash设备私有数据分配成功\n");
     
     // 初始化互斥锁
     pthread_mutex_init(&dev_data->mutex, NULL);
+    printf("Flash设备互斥锁初始化成功\n");
     
     // 获取设备内存配置
+    printf("获取Flash设备内存配置...\n");
     int region_count;
     const memory_region_t* regions = get_device_memory_regions(DEVICE_TYPE_FLASH, &region_count);
+    printf("获取到 %d 个内存区域\n", region_count);
     
     // 创建设备内存
+    printf("创建Flash设备内存...\n");
     dev_data->memory = device_memory_create(
         regions, 
         region_count, 
@@ -65,22 +78,30 @@ static int flash_init(device_instance_t* instance) {
     );
     
     if (!dev_data->memory) {
+        printf("Flash设备内存创建失败\n");
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);
         return -1;
     }
+    printf("Flash设备内存创建成功\n");
     
     // 初始化规则计数器
     dev_data->rule_count = 0;
     
     // 初始化设备规则
-    device_rule_manager_t* rule_manager = flash_get_rule_manager(instance);
+    printf("初始化Flash设备规则...\n");
+    struct device_rule_manager* rule_manager = flash_get_rule_manager(instance);
     if (rule_manager) {
         // 使用全局规则配置设置规则
+        printf("使用全局规则配置设置Flash设备规则...\n");
         dev_data->rule_count = setup_device_rules(rule_manager, DEVICE_TYPE_FLASH);
+        printf("设置了 %d 条Flash设备规则\n", dev_data->rule_count);
+    } else {
+        printf("获取Flash设备规则管理器失败\n");
     }
     
     instance->private_data = dev_data;
+    printf("Flash设备初始化完成\n");
     return 0;
 }
 
@@ -117,9 +138,10 @@ static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t valu
 }
 
 // 复位FLASH设备
-static void flash_reset(device_instance_t* instance) {
+static int flash_reset(device_instance_t* instance) {
     // 不执行任何操作，保持接口兼容性
     (void)instance;
+    return 0;
 }
 
 // 销毁FLASH设备
@@ -132,7 +154,7 @@ static void flash_destroy(device_instance_t* instance) {
     // 清理设备规则
     for (int i = 0; i < dev_data->rule_count; i++) {
         if (dev_data->device_rules[i].targets) {
-            action_target_destroy(dev_data->device_rules[i].targets);
+            free(dev_data->device_rules[i].targets);
             dev_data->device_rules[i].targets = NULL;
         }
     }
@@ -157,21 +179,22 @@ static pthread_mutex_t* flash_get_mutex(device_instance_t* instance) {
 }
 
 // 获取Flash设备规则管理器
-static device_rule_manager_t* flash_get_rule_manager(device_instance_t* instance) {
-    if (!instance || !instance->private_data) return NULL;
+static struct device_rule_manager* flash_get_rule_manager(device_instance_t* instance) {
+    printf("获取Flash设备规则管理器...\n");
+    if (!instance || !instance->private_data) {
+        printf("Flash设备规则管理器获取失败：实例或私有数据为空\n");
+        return NULL;
+    }
     
     flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    printf("Flash设备私有数据获取成功\n");
     
-    // 使用静态变量存储规则管理器，避免每次调用都分配内存
-    static device_rule_manager_t rule_manager;
+    // 使用设备规则管理器初始化函数
+    printf("初始化Flash设备规则管理器...\n");
+    device_rule_manager_init(&dev_data->rule_manager, &dev_data->mutex);
     
-    // 初始化规则管理器
-    rule_manager.rules = dev_data->device_rules;
-    rule_manager.rule_count = dev_data->rule_count;
-    rule_manager.max_rules = 8; // Flash设备支持8个规则
-    rule_manager.mutex = &dev_data->mutex;
-    
-    return &rule_manager;
+    printf("Flash设备规则管理器初始化成功\n");
+    return &dev_data->rule_manager;
 }
 
 // 注册FLASH设备类型
@@ -183,9 +206,9 @@ void register_flash_device_type(device_manager_t* dm) {
 }
 
 // 向Flash设备添加规则
-int flash_device_add_rule(device_instance_t* instance, uint32_t addr, 
-                         uint32_t expected_value, uint32_t expected_mask, 
-                         action_target_t* targets) {
+int flash_add_rule(device_instance_t* instance, uint32_t addr, 
+                  uint32_t expected_value, uint32_t expected_mask, 
+                  const action_target_array_t* targets) {
     if (!instance || !instance->private_data || !targets) {
         return -1;
     }
@@ -194,7 +217,8 @@ int flash_device_add_rule(device_instance_t* instance, uint32_t addr,
     
     // 使用通用的规则添加函数
     device_rule_manager_t manager;
-    device_rule_manager_init(&manager, &dev_data->mutex, dev_data->device_rules, 8);
+    device_rule_manager_init(&manager, &dev_data->mutex);
+    manager.rules = dev_data->device_rules;
     manager.rule_count = dev_data->rule_count;
     
     int result = device_rule_add(&manager, addr, expected_value, expected_mask, targets);
@@ -229,11 +253,35 @@ static int flash_configure_memory(device_instance_t* instance, memory_region_con
     }
     
     // 初始化寄存器
-    device_memory_write(dev_data->memory, FLASH_REG_STATUS, STATUS_READY);
+    device_memory_write(dev_data->memory, FLASH_REG_STATUS, FLASH_STATUS_READY);
     device_memory_write(dev_data->memory, FLASH_REG_CONFIG, 0);
-    device_memory_write(dev_data->memory, FLASH_REG_ADDR, 0);
+    device_memory_write(dev_data->memory, FLASH_REG_ADDRESS, 0);
     device_memory_write(dev_data->memory, FLASH_REG_DATA, 0);
     device_memory_write(dev_data->memory, FLASH_REG_SIZE, FLASH_MEM_SIZE);
     
     return 0;
+}
+
+// Flash 擦除回调函数
+void flash_erase_callback(void* context, uint32_t addr, uint32_t value) {
+    (void)addr; // 未使用参数
+    if (context) {
+        printf("Flash erase operation triggered! Control value: 0x%08x\n", value);
+    }
+}
+
+// Flash 读取回调函数
+void flash_read_callback(void* context, uint32_t addr, uint32_t value) {
+    (void)addr; // 未使用参数
+    if (context) {
+        printf("Flash read operation triggered! Control value: 0x%08x\n", value);
+    }
+}
+
+// Flash 写入回调函数
+void flash_write_callback(void* context, uint32_t addr, uint32_t value) {
+    (void)addr; // 未使用参数
+    if (context) {
+        printf("Flash write operation triggered! Control value: 0x%08x\n", value);
+    }
 }
