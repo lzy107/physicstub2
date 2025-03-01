@@ -34,8 +34,6 @@ typedef struct {
     device_instance_t base;       // 基础设备实例
     device_memory_t* memory;      // 设备内存
     pthread_mutex_t mutex;        // 互斥锁
-    pthread_t update_thread;      // 温度更新线程
-    int running;                  // 线程运行标志
     
     // 设备特定规则
     device_rule_t device_rules[8];    // 支持最多8个内置规则

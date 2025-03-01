@@ -144,13 +144,6 @@ static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t valu
             // 更新状态寄存器，设置为就绪状态，同时保留写使能位
             device_memory_write(dev_data->memory, FLASH_REG_STATUS, new_status);
             printf("DEBUG: Flash设备执行命令: 0x%02X, 更新状态寄存器为就绪状态，保留写使能位\n", value);
-            
-            // 更新地址空间中的状态寄存器值
-            address_space_t* as = instance->addr_space;
-            if (as) {
-                address_space_write(as, FLASH_REG_STATUS, new_status);
-                printf("DEBUG: 同步Flash设备地址空间状态寄存器，值为: 0x%02X\n", new_status);
-            }
         }
     }
     

@@ -5,6 +5,16 @@
 #include "device_types.h"
 #include "device_rules.h"
 
+// 全局设备管理器单例
+static device_manager_t* g_device_manager = NULL;
+
+device_manager_t* device_manager_get_instance(void) {
+    if (!g_device_manager) {
+        g_device_manager = device_manager_init();
+    }
+    return g_device_manager;
+}
+
 device_manager_t* device_manager_init(void) {
     device_manager_t* dm = (device_manager_t*)calloc(1, sizeof(device_manager_t));
     if (!dm) return NULL;
@@ -41,13 +51,6 @@ void device_manager_destroy(device_manager_t* dm) {
                 printf("  Device specific destroy completed.\n");
             }
             
-            // 清理地址空间
-            if (curr->addr_space) {
-                printf("  Destroying address space...\n");
-                address_space_destroy(curr->addr_space);
-                printf("  Address space destroyed.\n");
-            }
-            
             // 最后释放设备实例
             printf("  Freeing device instance...\n");
             free(curr);
@@ -69,8 +72,7 @@ void device_manager_destroy(device_manager_t* dm) {
     printf("Device manager cleanup completed.\n");
 }
 
-int device_type_register(device_manager_t* dm, device_type_id_t type_id, 
-                        const char* name, device_ops_t* ops) {
+int device_type_register(device_manager_t* dm, device_type_id_t type_id, const char* name, device_ops_t* ops) {
     if (!dm || !name || !ops || type_id >= MAX_DEVICE_TYPES) {
         return -1;
     }
@@ -78,9 +80,9 @@ int device_type_register(device_manager_t* dm, device_type_id_t type_id,
     pthread_mutex_lock(&dm->mutex);
     
     device_type_t* type = &dm->types[type_id];
+    snprintf(type->name, sizeof(type->name), "%s", name);
     type->type_id = type_id;
-    strncpy(type->name, name, sizeof(type->name) - 1);
-    memcpy(&type->ops, ops, sizeof(device_ops_t));
+    type->ops = *ops;
     
     pthread_mutex_unlock(&dm->mutex);
     return 0;
@@ -112,16 +114,9 @@ device_instance_t* device_create(device_manager_t* dm, device_type_id_t type_id,
     }
     
     instance->dev_id = dev_id;
-    instance->addr_space = address_space_create();
-    if (!instance->addr_space) {
-        free(instance);
-        pthread_mutex_unlock(&type->mutex);
-        return NULL;
-    }
     
     // 调用设备特定的初始化
     if (type->ops.init && type->ops.init(instance) != 0) {
-        address_space_destroy(instance->addr_space);
         free(instance);
         pthread_mutex_unlock(&type->mutex);
         return NULL;
@@ -157,7 +152,7 @@ void device_destroy(device_manager_t* dm, device_type_id_t type_id, int dev_id) 
             if (type->ops.destroy) {
                 type->ops.destroy(curr);
             }
-            address_space_destroy(curr->addr_space);
+            
             free(curr);
             break;
         }
@@ -219,16 +214,9 @@ device_instance_t* device_create_with_config(device_manager_t* dm, device_type_i
     }
     
     instance->dev_id = dev_id;
-    instance->addr_space = address_space_create();
-    if (!instance->addr_space) {
-        free(instance);
-        pthread_mutex_unlock(&type->mutex);
-        return NULL;
-    }
     
     // 调用设备特定的初始化
     if (type->ops.init && type->ops.init(instance) != 0) {
-        address_space_destroy(instance->addr_space);
         free(instance);
         pthread_mutex_unlock(&type->mutex);
         return NULL;
@@ -236,21 +224,11 @@ device_instance_t* device_create_with_config(device_manager_t* dm, device_type_i
     
     // 如果配置中包含内存区域配置，应用它们
     if (config->mem_regions && config->region_count > 0) {
-        // 获取设备私有数据
-        void* private_data = instance->private_data;
-        if (private_data) {
-            // 使用通用的内存配置函数
-            int result = -1;
-            if (type->ops.configure_memory) {
-                result = type->ops.configure_memory(instance, config->mem_regions, config->region_count);
-            }
-            
-            // 如果配置失败，清理资源并返回NULL
-            if (result != 0) {
+        if (type->ops.configure_memory) {
+            if (type->ops.configure_memory(instance, config->mem_regions, config->region_count) != 0) {
                 if (type->ops.destroy) {
                     type->ops.destroy(instance);
                 }
-                address_space_destroy(instance->addr_space);
                 free(instance);
                 pthread_mutex_unlock(&type->mutex);
                 return NULL;
@@ -258,18 +236,18 @@ device_instance_t* device_create_with_config(device_manager_t* dm, device_type_i
         }
     }
     
-    // 如果配置中包含规则配置，应用它们
+    // 如果配置中包含规则，设置它们
     if (config->rules && config->rule_count > 0) {
-        // 获取设备规则管理器
+        struct device_rule_manager* rule_manager = NULL;
         if (type->ops.get_rule_manager) {
-            struct device_rule_manager* rule_manager = type->ops.get_rule_manager(instance);
-            if (rule_manager) {
-                // 添加规则
-                for (int i = 0; i < config->rule_count; i++) {
-                    device_rule_t* rule = &config->rules[i];
-                    device_rule_add(rule_manager, rule->addr, rule->expected_value, 
-                                   rule->expected_mask, rule->targets);
-                }
+            rule_manager = type->ops.get_rule_manager(instance);
+        }
+        
+        if (rule_manager) {
+            for (int i = 0; i < config->rule_count; i++) {
+                device_rule_t* rule = &config->rules[i];
+                device_rule_add(rule_manager, rule->addr, rule->expected_value, 
+                               rule->expected_mask, rule->targets);
             }
         }
     }

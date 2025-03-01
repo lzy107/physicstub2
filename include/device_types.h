@@ -4,7 +4,6 @@
 
 #include <stdint.h>
 #include <pthread.h>
-#include "address_space.h"
 
 // 前向声明
 struct device_rule_manager;
@@ -39,7 +38,6 @@ typedef struct {
 // 设备实例结构
 typedef struct device_instance {
     int dev_id;                           // 设备ID
-    address_space_t* addr_space;          // 私有地址空间
     struct device_instance* next;         // 链表指针
     void* private_data;                   // 设备私有数据
 } device_instance_t;
@@ -79,6 +77,9 @@ typedef struct {
 device_manager_t* device_manager_init(void);
 void device_manager_destroy(device_manager_t* dm);
 int device_type_register(device_manager_t* dm, device_type_id_t type_id, const char* name, device_ops_t* ops);
+
+// 获取设备管理器单例
+device_manager_t* device_manager_get_instance(void);
 
 // 创建设备实例（基本版本）
 device_instance_t* device_create(device_manager_t* dm, device_type_id_t type_id, int dev_id);

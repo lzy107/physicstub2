@@ -11,15 +11,13 @@ SRC_DIR = src
 CORE_DIR = $(SRC_DIR)/core
 DEVICE_DIR = $(SRC_DIR)/device
 MONITOR_DIR = $(SRC_DIR)/monitor
-TEST_DIR = $(SRC_DIR)/test
 PLUGIN_DIR = plugins
 
 # 核心源文件
-CORE_SRC = $(CORE_DIR)/main.c \
-           $(CORE_DIR)/address_space.c
+CORE_SRC = $(CORE_DIR)/main.c
 
 # 核心源文件（不包含main.c，用于测试）
-CORE_TEST_SRC = $(CORE_DIR)/address_space.c
+CORE_TEST_SRC = 
 
 # 设备源文件
 DEVICE_SRC = $(DEVICE_DIR)/device_types.c \
@@ -32,14 +30,6 @@ MONITOR_SRC = $(MONITOR_DIR)/global_monitor.c \
               $(MONITOR_DIR)/action_manager.c \
               $(MONITOR_DIR)/device_rules.c \
               $(MONITOR_DIR)/device_rule_configs.c
-
-# 测试源文件
-TEST_SRC = $(TEST_DIR)/device_test.c \
-           $(TEST_DIR)/test_main.c \
-           $(TEST_DIR)/flash_test.c \
-           $(TEST_DIR)/fpga_test.c \
-           $(TEST_DIR)/temp_sensor_test.c \
-           $(TEST_DIR)/device_wrapper.c
 
 # Flash设备插件源文件
 FLASH_SRC = $(PLUGIN_DIR)/flash/flash_device.c \
@@ -57,14 +47,14 @@ TEMP_SENSOR_SRC = $(PLUGIN_DIR)/temp_sensor/temp_sensor.c \
                   $(PLUGIN_DIR)/temp_sensor/temp_sensor_rule_configs.c
 
 # 所有源文件
-SRCS = $(CORE_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC) $(TEST_DIR)/device_test.c $(TEST_DIR)/device_wrapper.c
+SRCS = $(CORE_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC)
 
 # 所有源文件（不包含main.c，用于测试）
 TEST_SRCS = $(CORE_TEST_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC)
 
 # 替换目标文件路径，使其放在临时目录中
 TEMP_OBJS = $(patsubst %.c,$(TEMP_DIR)/%.o,$(SRCS))
-TEMP_TEST_OBJS = $(patsubst %.c,$(TEMP_DIR)/%.o,$(TEST_SRCS)) $(patsubst %.c,$(TEMP_DIR)/%.o,$(TEST_SRC))
+TEMP_TEST_OBJS = $(patsubst %.c,$(TEMP_DIR)/%.o,$(TEST_SRCS))
 
 # 构建目录
 BUILD_DIR = build
@@ -128,11 +118,11 @@ prepare_temp:
 	@find $(PLUGIN_DIR)/fpga -name "*.h" -exec cp {} $(TEMP_INCLUDE)/fpga/ \;
 	@find $(PLUGIN_DIR)/temp_sensor -name "*.h" -exec cp {} $(TEMP_INCLUDE)/temp_sensor/ \;
 	@# 为源文件创建临时目录结构
-	@for src in $(SRCS) $(TEST_SRC); do \
+	@for src in $(SRCS) $(TEST_SRCS); do \
 		mkdir -p $(TEMP_DIR)/`dirname $$src`; \
 	done
 	@# 创建临时源文件，修改头文件包含方式
-	@for src in $(SRCS) $(TEST_SRC); do \
+	@for src in $(SRCS) $(TEST_SRCS); do \
 		mkdir -p $(TEMP_DIR)/`dirname $$src`; \
 		case $$src in \
 			$(PLUGIN_DIR)/flash/*) \

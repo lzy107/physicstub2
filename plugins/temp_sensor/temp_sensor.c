@@ -46,47 +46,6 @@ struct device_rule_manager* temp_sensor_get_rule_manager(device_instance_t* inst
     return &dev_data->rule_manager;
 }
 
-// 温度更新线程函数
-static void* temp_update_thread(void* arg) {
-    device_instance_t* instance = (device_instance_t*)arg;
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
-    uint32_t value;
-    
-    while (dev_data->running) {
-        pthread_mutex_lock(&dev_data->mutex);
-        
-        // 读取配置寄存器
-        if (device_memory_read(dev_data->memory, CONFIG_REG, &value) == 0) {
-            // 如果不在关断模式
-            if (!(value & CONFIG_SHUTDOWN)) {
-                // 模拟温度变化（在20-30度之间随机波动）
-                uint32_t temp = 2000 + (rand() % 1000);  // 0.0625°C/bit
-                device_memory_write(dev_data->memory, TEMP_REG, temp);
-                
-                // 检查报警条件
-                if (value & CONFIG_ALERT) {
-                    uint32_t tlow, thigh;
-                    if (device_memory_read(dev_data->memory, TLOW_REG, &tlow) == 0 &&
-                        device_memory_read(dev_data->memory, THIGH_REG, &thigh) == 0) {
-                        // 更新报警状态
-                        if (temp >= thigh || temp <= tlow) {
-                            value |= (1 << 15);  // 设置报警位
-                        } else {
-                            value &= ~(1 << 15);  // 清除报警位
-                        }
-                        device_memory_write(dev_data->memory, CONFIG_REG, value);
-                    }
-                }
-            }
-        }
-        
-        pthread_mutex_unlock(&dev_data->mutex);
-        usleep(100000);  // 100ms更新一次
-    }
-    
-    return NULL;
-}
-
 // 初始化温度传感器
 int temp_sensor_init(device_instance_t* instance) {
     if (!instance) return -1;
@@ -144,24 +103,11 @@ int temp_sensor_init(device_instance_t* instance) {
     device_memory_write(dev_data->memory, THIGH_REG, 3000); // 30°C
     device_memory_write(dev_data->memory, 0x10, initial_temp); // 初始模拟温度也是25°C
     
-    // 同时，在设备地址空间中设置相同的初始值
-    // 这确保直接通过地址空间访问也能获取到正确的值
-    if (instance->addr_space) {
-        printf("DEBUG: 初始化温度传感器地址空间，ID: %d\n", instance->dev_id);
-        
-        // 将相同的值写入到地址空间
-        address_space_write(instance->addr_space, TEMP_REG, initial_temp);
-        address_space_write(instance->addr_space, CONFIG_REG, CONFIG_ALERT);
-        address_space_write(instance->addr_space, TLOW_REG, 1000);
-        address_space_write(instance->addr_space, THIGH_REG, 3000);
-        address_space_write(instance->addr_space, 0x10, initial_temp);
-        
-        printf("DEBUG: 温度传感器地址空间初始化完成\n");
-    } else {
-        printf("ERROR: 温度传感器没有有效的地址空间\n");
-    }
+    printf("DEBUG: 温度传感器设备内存初始化完成，ID: %d\n", instance->dev_id);
     
+    // 设置设备私有数据
     instance->private_data = dev_data;
+    
     return 0;
 }
 
@@ -176,11 +122,6 @@ int temp_sensor_read(device_instance_t* instance, uint32_t addr, uint32_t* value
     
     // 直接从内存读取数据
     int ret = device_memory_read(dev_data->memory, addr, value);
-    
-    // 同步到地址空间
-    if (ret == 0 && instance->addr_space) {
-        address_space_write(instance->addr_space, addr, *value);
-    }
     
     // 调试输出
     printf("DEBUG: 温度传感器读取寄存器 0x%08X, 值 = 0x%08X, 返回值 = %d\n", 
@@ -201,11 +142,6 @@ int temp_sensor_write(device_instance_t* instance, uint32_t addr, uint32_t value
     
     // 写入设备内存
     int ret = device_memory_write(dev_data->memory, addr, value);
-    
-    // 同步到地址空间
-    if (ret == 0 && instance->addr_space) {
-        address_space_write(instance->addr_space, addr, value);
-    }
     
     pthread_mutex_unlock(&dev_data->mutex);
     return ret;
@@ -262,12 +198,6 @@ void temp_sensor_destroy(device_instance_t* instance) {
     if (!instance || !instance->private_data) return;
     
     temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
-    
-    // 停止更新线程
-    if (dev_data->running) {
-        dev_data->running = 0;
-        pthread_join(dev_data->update_thread, NULL);
-    }
     
     // 销毁内存
     if (dev_data->memory) {

@@ -9,14 +9,14 @@
 #include <unistd.h>
 #include <signal.h>
 #include <getopt.h>
-#include "../../include/device_test.h"
+// 删除测试相关头文件
+// #include "../../include/device_test.h"
 #include "../../include/device_registry.h"
 #include "../../include/device_types.h"
 #include "../../include/global_monitor.h"
 #include "../../include/action_manager.h"
 
 // 核心组件头文件
-#include "../../include/address_space.h"
 #include "../../include/device_configs.h"
 #include "../../include/device_rule_configs.h"
 
@@ -54,13 +54,30 @@ static void register_all_device_types(device_manager_t* dm) {
 static int run_simulator_demo(void) {
     printf("启动物理设备模拟器演示...\n");
     
-    // 初始化测试环境
-    device_manager_t* dm = NULL;
-    global_monitor_t* gm = NULL;
-    action_manager_t* am = NULL;
+    // 初始化管理器
+    device_manager_t* dm = device_manager_init();
     
-    if (test_environment_init(&dm, &gm, &am) != 0) {
-        printf("错误: 无法初始化模拟器环境\n");
+    if (!dm) {
+        printf("错误: 无法初始化设备管理器\n");
+        return 1;
+    }
+    
+    // 使用正确的函数创建动作管理器
+    action_manager_t* am = action_manager_create();
+    
+    if (!am) {
+        printf("错误: 无法创建动作管理器\n");
+        device_manager_destroy(dm);
+        return 1;
+    }
+    
+    // 使用动作管理器和设备管理器创建全局监视器
+    global_monitor_t* gm = global_monitor_create(am, dm);
+    
+    if (!gm) {
+        printf("错误: 无法创建全局监视器\n");
+        device_manager_destroy(dm);
+        action_manager_destroy(am);
         return 1;
     }
     
@@ -74,7 +91,10 @@ static int run_simulator_demo(void) {
     
     if (!flash || !fpga || !temp_sensor) {
         printf("错误: 创建设备实例失败\n");
-        test_environment_cleanup(dm, gm, am);
+        // 清理资源
+        device_manager_destroy(dm);
+        global_monitor_destroy(gm);
+        action_manager_destroy(am);
         return 1;
     }
     
@@ -86,8 +106,10 @@ static int run_simulator_demo(void) {
     // 在这里可以添加演示代码
     // ...
     
-    // 清理测试环境
-    test_environment_cleanup(dm, gm, am);
+    // 清理资源
+    device_manager_destroy(dm);
+    global_monitor_destroy(gm);
+    action_manager_destroy(am);
     
     return 0;
 }
