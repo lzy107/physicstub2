@@ -3,6 +3,7 @@ build/
 *.o
 *.so
 program
+temp_build/
 
 # IDE 配置
 .vscode/
