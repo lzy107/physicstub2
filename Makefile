@@ -53,7 +53,7 @@ TEMP_SENSOR_SRC = $(PLUGIN_DIR)/temp_sensor/temp_sensor.c \
                   $(PLUGIN_DIR)/temp_sensor/temp_sensor_rule_configs.c
 
 # 所有源文件
-SRCS = $(CORE_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC)
+SRCS = $(CORE_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC) $(TEST_DIR)/device_test.c $(TEST_DIR)/device_wrapper.c
 
 # 所有源文件（不包含main.c，用于测试）
 TEST_SRCS = $(CORE_TEST_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC)
@@ -97,6 +97,9 @@ $(BUILD_DIR):
 # 清理
 clean:
 	rm -f $(OBJS) $(TEST_OBJS) $(PROGRAM) $(TEST_PROGRAM)
+	find $(BUILD_DIR) -name "*.o" -type f -delete
+	find . -name "*.o" -type f -delete
+	@echo "所有目标文件(.o)和可执行文件已清理完毕"
 
 # 运行主程序
 run: $(PROGRAM)
