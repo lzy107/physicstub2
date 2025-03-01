@@ -158,36 +158,69 @@ static void execute_action_target(action_target_t* target, device_manager_t* dm)
 // 处理设备规则
 static int handle_device_rules(device_rule_manager_t* rule_manager, uint32_t start_addr, uint32_t end_addr, 
                              uint8_t* memory_data, size_t memory_size, device_manager_t* dm) {
-    if (!rule_manager || !rule_manager->rules || !memory_data || !dm) return 0;
+    printf("DEBUG: handle_device_rules - 开始执行\n");
+    
+    if (!rule_manager || !rule_manager->rules || !memory_data || !dm) {
+        printf("DEBUG: handle_device_rules - 参数无效\n");
+        return 0;
+    }
     
     int rules_triggered = 0;
+    
+    printf("DEBUG: handle_device_rules - 尝试获取互斥锁\n");
     pthread_mutex_lock(rule_manager->mutex);
+    printf("DEBUG: handle_device_rules - 获取互斥锁成功\n");
+    
+    printf("DEBUG: handle_device_rules - 规则数量: %d\n", rule_manager->rule_count);
     
     // 遍历所有规则
     for (int i = 0; i < rule_manager->rule_count; i++) {
         device_rule_t* rule = &rule_manager->rules[i];
-        if (!rule->active) continue;
+        if (!rule->active) {
+            printf("DEBUG: handle_device_rules - 规则 %d 未激活，跳过\n", i);
+            continue;
+        }
+        
+        printf("DEBUG: handle_device_rules - 检查规则 %d, 地址=0x%X, 范围=0x%X-0x%X\n", 
+               i, rule->addr, start_addr, end_addr);
         
         // 检查地址是否在范围内
         if (rule->addr < start_addr || rule->addr >= end_addr) {
+            printf("DEBUG: handle_device_rules - 规则 %d 地址不在范围内，跳过\n", i);
             continue;
         }
         
         // 读取当前值
         uint32_t value = *(uint32_t*)(memory_data + (rule->addr - start_addr));
+        printf("DEBUG: handle_device_rules - 读取地址0x%X的值=0x%X\n", rule->addr, value);
         
         // 检查条件是否满足
+        printf("DEBUG: handle_device_rules - 检查条件: (0x%X & 0x%X) == (0x%X & 0x%X)\n", 
+               value, rule->expected_mask, rule->expected_value, rule->expected_mask);
+               
         if ((value & rule->expected_mask) == (rule->expected_value & rule->expected_mask)) {
+            printf("DEBUG: handle_device_rules - 规则 %d 条件满足，触发目标动作\n", i);
+            
             // 执行所有目标动作
+            printf("DEBUG: handle_device_rules - 目标数量: %d\n", rule->targets->count);
             for (int j = 0; j < rule->targets->count; j++) {
+                printf("DEBUG: handle_device_rules - 执行目标 %d\n", j);
                 action_target_t* target = &rule->targets->targets[j];
                 execute_action_target(target, dm);
+                printf("DEBUG: handle_device_rules - 目标 %d 执行完成\n", j);
             }
             rules_triggered++;
+            printf("DEBUG: handle_device_rules - 规则 %d 触发完成\n", i);
+        } else {
+            printf("DEBUG: handle_device_rules - 规则 %d 条件不满足\n", i);
         }
     }
     
+    printf("DEBUG: handle_device_rules - 所有规则处理完成，触发数量: %d\n", rules_triggered);
+    printf("DEBUG: handle_device_rules - 准备释放互斥锁\n");
     pthread_mutex_unlock(rule_manager->mutex);
+    printf("DEBUG: handle_device_rules - 互斥锁已释放\n");
+    
     return rules_triggered;
 }
 
@@ -195,30 +228,49 @@ static int handle_device_rules(device_rule_manager_t* rule_manager, uint32_t sta
 void global_monitor_handle_address_range_changes(global_monitor_t* gm, device_type_id_t device_type,
                                                int device_id, uint32_t start_addr, uint32_t end_addr,
                                                uint8_t* memory_data, size_t memory_size) {
+    printf("DEBUG: global_monitor_handle_address_range_changes - 开始执行\n");
+    
     // 参数验证
     if (!gm || !gm->am || !memory_data || start_addr >= end_addr || start_addr >= memory_size) {
+        printf("DEBUG: global_monitor_handle_address_range_changes - 参数无效\n");
         return;
     }
     
     // 防止越界访问
     if (end_addr > memory_size) {
+        printf("DEBUG: global_monitor_handle_address_range_changes - 调整end_addr防止越界\n");
         end_addr = memory_size;
     }
     
+    printf("DEBUG: global_monitor_handle_address_range_changes - 处理地址范围 0x%X - 0x%X\n", 
+           start_addr, end_addr);
+    
     // 获取设备实例，用于检查设备特定规则
+    printf("DEBUG: global_monitor_handle_address_range_changes - 获取设备实例\n");
     device_instance_t* instance = device_get(gm->dm, device_type, device_id);
     
     // 处理设备特定规则 - 使用设备提供的钩子函数
     if (instance) {
+        printf("DEBUG: global_monitor_handle_address_range_changes - 找到设备实例，获取规则管理器\n");
         device_type_t* dev_type = &gm->dm->types[device_type];
         if (dev_type->ops.get_rule_manager) {
+            printf("DEBUG: global_monitor_handle_address_range_changes - 获取规则管理器\n");
             device_rule_manager_t* rule_manager = dev_type->ops.get_rule_manager(instance);
             if (rule_manager) {
+                printf("DEBUG: global_monitor_handle_address_range_changes - 开始处理设备规则\n");
                 handle_device_rules(rule_manager, start_addr, end_addr, memory_data, memory_size, gm->dm);
+                printf("DEBUG: global_monitor_handle_address_range_changes - 设备规则处理完成\n");
+            } else {
+                printf("DEBUG: global_monitor_handle_address_range_changes - 规则管理器为NULL\n");
             }
+        } else {
+            printf("DEBUG: global_monitor_handle_address_range_changes - 设备不支持规则管理器\n");
         }
+    } else {
+        printf("DEBUG: global_monitor_handle_address_range_changes - 未找到设备实例\n");
     }
     
+    printf("DEBUG: global_monitor_handle_address_range_changes - 完成\n");
 }
 
 // 添加监视点并设置规则

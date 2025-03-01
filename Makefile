@@ -46,15 +46,22 @@ TEMP_SENSOR_SRC = $(PLUGIN_DIR)/temp_sensor/temp_sensor.c \
                   $(PLUGIN_DIR)/temp_sensor/temp_sensor_configs.c \
                   $(PLUGIN_DIR)/temp_sensor/temp_sensor_rule_configs.c
 
+# 新增温度传感器规则测试源文件
+TEMP_SENSOR_RULE_TEST_SRC = test_temp_sensor_rules.c
+
 # 所有源文件
 SRCS = $(CORE_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC)
 
 # 所有源文件（不包含main.c，用于测试）
 TEST_SRCS = $(CORE_TEST_SRC) $(DEVICE_SRC) $(MONITOR_SRC) $(FLASH_SRC) $(FPGA_SRC) $(TEMP_SENSOR_SRC)
 
+# 温度传感器规则测试源文件
+TEMP_SENSOR_RULE_TEST = $(TEST_SRCS) $(TEMP_SENSOR_RULE_TEST_SRC)
+
 # 替换目标文件路径，使其放在临时目录中
 TEMP_OBJS = $(patsubst %.c,$(TEMP_DIR)/%.o,$(SRCS))
 TEMP_TEST_OBJS = $(patsubst %.c,$(TEMP_DIR)/%.o,$(TEST_SRCS))
+TEMP_SENSOR_RULE_TEST_OBJS = $(patsubst %.c,$(TEMP_DIR)/%.o,$(TEMP_SENSOR_RULE_TEST))
 
 # 构建目录
 BUILD_DIR = build
@@ -63,6 +70,7 @@ BIN_DIR = bin
 # 可执行文件
 PROGRAM = $(BUILD_DIR)/program
 TEST_PROGRAM = $(BUILD_DIR)/test_program
+TEMP_SENSOR_RULE_TEST_PROGRAM = $(BUILD_DIR)/test_temp_sensor_rules
 
 # 头文件路径
 INCLUDE_DIRS = include $(PLUGIN_DIR)/flash $(PLUGIN_DIR)/fpga $(PLUGIN_DIR)/temp_sensor
@@ -72,6 +80,9 @@ all: prepare_temp $(PROGRAM)
 
 # 测试目标
 test: prepare_temp $(TEST_PROGRAM)
+
+# 新增温度传感器规则测试目标
+test_temp_sensor_rules: prepare_temp $(TEMP_SENSOR_RULE_TEST_PROGRAM)
 
 # 处理所有源文件和头文件，去除相对路径引用
 process_files:
@@ -118,11 +129,11 @@ prepare_temp:
 	@find $(PLUGIN_DIR)/fpga -name "*.h" -exec cp {} $(TEMP_INCLUDE)/fpga/ \;
 	@find $(PLUGIN_DIR)/temp_sensor -name "*.h" -exec cp {} $(TEMP_INCLUDE)/temp_sensor/ \;
 	@# 为源文件创建临时目录结构
-	@for src in $(SRCS) $(TEST_SRCS); do \
+	@for src in $(SRCS) $(TEST_SRCS) $(TEMP_SENSOR_RULE_TEST_SRC); do \
 		mkdir -p $(TEMP_DIR)/`dirname $$src`; \
 	done
 	@# 创建临时源文件，修改头文件包含方式
-	@for src in $(SRCS) $(TEST_SRCS); do \
+	@for src in $(SRCS) $(TEST_SRCS) $(TEMP_SENSOR_RULE_TEST_SRC); do \
 		mkdir -p $(TEMP_DIR)/`dirname $$src`; \
 		case $$src in \
 			$(PLUGIN_DIR)/flash/*) \
@@ -158,7 +169,7 @@ prepare_temp:
 				       s|#include "[.][.]/plugins/fpga/|#include "fpga/|g; \
 				       s|#include "[.][.]/plugins/temp_sensor/|#include "temp_sensor/|g' \
 				       $$src > $(TEMP_DIR)/$$src ;; \
-			*) \
+			*.c) \
 				sed -E 's|#include "[.][.]/[.][.]/include/|#include "|g; \
 				       s|#include "[.][.]/[.][.]/plugins/flash/|#include "flash/|g; \
 				       s|#include "[.][.]/[.][.]/plugins/fpga/|#include "fpga/|g; \
@@ -183,6 +194,10 @@ $(PROGRAM): $(TEMP_OBJS) | $(BUILD_DIR)
 $(TEST_PROGRAM): $(TEMP_TEST_OBJS) | $(BUILD_DIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
+# 新增温度传感器规则测试程序编译
+$(TEMP_SENSOR_RULE_TEST_PROGRAM): $(TEMP_SENSOR_RULE_TEST_OBJS) | $(BUILD_DIR)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
 # 编译规则 - 将源文件编译到临时目录中
 $(TEMP_DIR)/%.o: $(TEMP_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -190,7 +205,7 @@ $(TEMP_DIR)/%.o: $(TEMP_DIR)/%.c
 # 清理
 clean:
 	@echo "清理所有构建文件..."
-	@rm -f $(PROGRAM) $(TEST_PROGRAM)
+	@rm -f $(PROGRAM) $(TEST_PROGRAM) $(TEMP_SENSOR_RULE_TEST_PROGRAM)
 	@find $(BUILD_DIR) -name "*.o" -type f -delete
 	@rm -rf $(TEMP_DIR)
 	@echo "所有目标文件(.o)和可执行文件已清理完毕"
@@ -203,9 +218,13 @@ run: $(PROGRAM)
 run_test: $(TEST_PROGRAM)
 	./$(TEST_PROGRAM) --all
 
+# 新增运行温度传感器规则测试程序
+run_temp_sensor_rule_test: $(TEMP_SENSOR_RULE_TEST_PROGRAM)
+	./$(TEMP_SENSOR_RULE_TEST_PROGRAM)
+
 # 安装（可选）
 install: $(PROGRAM)
 	mkdir -p $(BIN_DIR)
 	cp $(PROGRAM) $(BIN_DIR)/
 
-.PHONY: all test clean run run_test install prepare_temp process_files
+.PHONY: all test test_temp_sensor_rules clean run run_test run_temp_sensor_rule_test install prepare_temp process_files

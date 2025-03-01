@@ -193,36 +193,7 @@ int fpga_device_write(device_instance_t* instance, uint32_t addr, uint32_t value
     
     pthread_mutex_lock(&dev_data->mutex);
     
-    // 处理特殊寄存器
-    if (addr == FPGA_CONFIG_REG) {
-        // 如果写入配置寄存器，更新状态寄存器
-        if (value & CONFIG_RESET) {
-            printf("DEBUG: FPGA设备配置复位，更新状态寄存器为DONE状态\n");
-            
-            // 设置状态寄存器为DONE状态
-            device_memory_write(dev_data->memory, FPGA_STATUS_REG, STATUS_DONE);
-        }
-    }
-    else if (addr == FPGA_CONTROL_REG) {
-        // 如果写入控制寄存器，可能触发中断
-        if (value & CTRL_START) {
-            printf("DEBUG: FPGA设备启动操作，触发中断\n");
-            
-            // 设置中断寄存器为1
-            device_memory_write(dev_data->memory, FPGA_IRQ_REG, 0x01);
-        }
-    }
-    else if (addr == FPGA_IRQ_REG) {
-        // 如果写入中断寄存器并且值为1，则清除中断
-        if (value == 0x01) {
-            printf("DEBUG: FPGA设备清除中断\n");
-            
-            // 清除中断
-            device_memory_write(dev_data->memory, FPGA_IRQ_REG, 0x00);
-        }
-    }
-    
-    // 直接写入内存
+    // 直接写入内存，不再处理特殊寄存器
     int ret = device_memory_write(dev_data->memory, addr, value);
     
     pthread_mutex_unlock(&dev_data->mutex);

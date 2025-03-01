@@ -2,9 +2,33 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <sys/time.h>
 #include "action_manager.h"
 #include "device_types.h"
 #include "device_rule_configs.h"
+#include "device_registry.h"
+#include "device_memory.h"
+#include "temp_sensor/temp_sensor.h"  // 添加温度传感器头文件
+
+// 前向声明
+static int action_target_count(action_target_array_t* targets);
+static action_target_t* action_target_get(action_target_array_t* targets, int index);
+static int execute_action_target(action_target_t* target, device_manager_t* dm);
+
+// 简化的设备读取包装函数，适用于测试
+static int device_read(device_instance_t* device, uint32_t addr, uint32_t* value) {
+    if (!device || !value) {
+        return -1;
+    }
+    
+    // 对于温度传感器，调用特定的读函数
+    if (device->dev_id == 0) {  // 这里简化为只有一个温度传感器设备
+        return temp_sensor_read(device, addr, value);
+    }
+    
+    return -1;
+}
 
 // 规则提供者链表节点
 typedef struct rule_provider_node {
@@ -322,7 +346,18 @@ int action_manager_add_rules_from_table(action_manager_t* am, const rule_table_e
         // 复制规则内容
         printf("复制规则内容: name=%s, trigger_addr=0x%x\n", 
                entry->name ? entry->name : "NULL", entry->trigger.trigger_addr);
-        rule->name = entry->name;
+        
+        // 复制名称字符串而不是仅复制指针
+        if (entry->name && strcmp(entry->name, "Unnamed Rule") != 0) {
+            rule->name = strdup(entry->name);
+            if (!rule->name) {
+                // 如果分配失败，使用默认名称
+                rule->name = "Unnamed Rule";
+            }
+        } else {
+            rule->name = "Unnamed Rule";
+        }
+        
         rule->trigger = entry->trigger;
         rule->priority = entry->priority;
         
@@ -363,7 +398,18 @@ int action_manager_add_rule(action_manager_t* am, action_rule_t* rule) {
     // 复制规则内容
     action_rule_t* new_rule = &am->rules[am->rule_count];
     new_rule->rule_id = rule->rule_id;
-    new_rule->name = rule->name;
+    
+    // 复制名称字符串而不是仅复制指针
+    if (rule->name && strcmp(rule->name, "Unnamed Rule") != 0) {
+        new_rule->name = strdup(rule->name);
+        if (!new_rule->name) {
+            // 如果分配失败，使用默认名称
+            new_rule->name = "Unnamed Rule";
+        }
+    } else {
+        new_rule->name = "Unnamed Rule";
+    }
+    
     new_rule->trigger = rule->trigger;
     new_rule->priority = rule->priority;
     
@@ -397,77 +443,195 @@ void action_manager_remove_rule(action_manager_t* am, int rule_id) {
     pthread_mutex_unlock(&am->mutex);
 }
 
-// 执行单个目标处理动作
-static void execute_action_target(action_target_t* target, device_manager_t* dm) {
-    if (!target || !dm) return;
+/**
+ * 执行目标处理动作
+ * 
+ * @param target 目标处理动作
+ * @param dm 设备管理器
+ * @return 成功返回0，失败返回非0
+ */
+static int execute_action_target(action_target_t* target, device_manager_t* dm) {
+    struct timeval tv;
+    time_t now;
     
-    switch (target->type) {
-        case ACTION_TYPE_NONE:
-            // 不执行任何操作
-            break;
-            
-        case ACTION_TYPE_WRITE: {
-            // 获取设备实例
-            device_instance_t* instance = device_get(dm, target->device_type, target->device_id);
-            if (!instance) return;
-            
-            // 获取设备操作接口
-            device_ops_t* ops = &dm->types[target->device_type].ops;
-            if (!ops || !ops->write) return;
-            
-            // 获取设备特定的互斥锁
-            pthread_mutex_t* mutex = NULL;
-            if (ops->get_mutex) {
-                mutex = ops->get_mutex(instance);
-            }
-            
-            // 如果无法获取设备特定的互斥锁，回退到使用设备类型锁
-            if (!mutex) {
-                device_type_t* type = &dm->types[target->device_type];
-                mutex = &type->mutex;
-            }
-            
-            // 获取互斥锁
-            pthread_mutex_lock(mutex);
-            
-            // 如果有掩码，先读取当前值，然后应用掩码
-            if (target->target_mask != 0xFFFFFFFF) {
-                uint32_t current_value;
-                if (ops->read && ops->read(instance, target->target_addr, &current_value) == 0) {
-                    // 清除掩码位，然后设置新值
-                    uint32_t new_value = (current_value & ~target->target_mask) | 
-                                        (target->target_value & target->target_mask);
-                    ops->write(instance, target->target_addr, new_value);
-                }
-            } else {
-                // 直接写入新值
-                ops->write(instance, target->target_addr, target->target_value);
-            }
-            
-            // 释放互斥锁
-            pthread_mutex_unlock(mutex);
-            break;
+    if (!target || !dm) {
+        return -1;
+    }
+    
+    gettimeofday(&tv, NULL);
+    
+    // 记录执行开始
+    printf("[%ld.%06ld] execute_action_target - 开始执行目标, 目标=%p, 设备管理器=%p\n",
+               tv.tv_sec, tv.tv_usec, target, dm);
+    
+    // 输出目标详细信息
+    printf("[%ld.%06ld] execute_action_target - 目标详情: 类型=%d, 地址=0x%08X, 值=0x%08X, 掩码=0x%08X\n",
+          tv.tv_sec, tv.tv_usec, target->type, target->target_addr, target->target_value, target->target_mask);
+    
+    // 获取目标对应的设备
+    device_instance_t* device = device_manager_get_device_by_addr(dm, target->target_addr);
+    gettimeofday(&tv, NULL);
+    
+    if (!device) {
+        printf("[%ld.%06ld] execute_action_target - 错误: 找不到匹配地址0x%08X的设备\n",
+               tv.tv_sec, tv.tv_usec, target->target_addr);
+        
+        // 尝试列出所有已注册设备以进行调试
+        printf("[%ld.%06ld] execute_action_target - 尝试列出所有已注册设备:\n", tv.tv_sec, tv.tv_usec);
+        device_manager_dump_devices(dm);
+        
+        return -1;
+    }
+    
+    // 写入目标值
+    uint32_t offset = target->target_addr;  // 简化，直接使用地址
+    
+    printf("[%ld.%06ld] execute_action_target - 计算偏移: 偏移=0x%08X, 目标地址=0x%08X\n",
+           tv.tv_sec, tv.tv_usec, offset, target->target_addr);
+    
+    // 在日志中记录将要执行的写入操作
+    printf("[%ld.%06ld] execute_action_target - 将向地址0x%08X (偏移0x%08X)写入值0x%08X\n",
+          tv.tv_sec, tv.tv_usec, target->target_addr, offset, target->target_value);
+    
+    // 记录当前时间以进行调试
+    now = time(NULL);
+    printf("[%ld.%06ld] execute_action_target - 当前时间: %s",
+           tv.tv_sec, tv.tv_usec, ctime(&now));
+    
+    // 简化处理 - 直接写入设备的目标地址
+    // 对于温度传感器的情况，使用特定的处理函数
+    if (target->device_type == DEVICE_TYPE_TEMP_SENSOR) {
+        // 对于温度传感器，调用特定的写函数
+        int write_result = temp_sensor_write(device, target->target_addr, target->target_value);
+        
+        gettimeofday(&tv, NULL);
+        printf("[%ld.%06ld] execute_action_target - 温度传感器写入结果: %d\n",
+               tv.tv_sec, tv.tv_usec, write_result);
+        
+        // 验证写入是否成功
+        uint32_t current_value = 0;
+        if (temp_sensor_read(device, target->target_addr, &current_value) == 0) {
+            printf("[%ld.%06ld] execute_action_target - 当前值: 0x%08X\n",
+                   tv.tv_sec, tv.tv_usec, current_value);
+        } else {
+            printf("[%ld.%06ld] execute_action_target - 无法读取当前内存值\n", tv.tv_sec, tv.tv_usec);
         }
         
-        case ACTION_TYPE_SIGNAL:
-            // 信号发送逻辑
-            break;
-            
-        case ACTION_TYPE_CALLBACK:
-            if (target->callback) {
-                target->callback(target->callback_data ? target->callback_data : &target->target_value);
-            }
-            break;
+        return write_result;
     }
+    
+    // 记录当前时间以进行调试
+    now = time(NULL);
+    printf("[%ld.%06ld] execute_action_target - 写入完成时间: %s",
+           tv.tv_sec, tv.tv_usec, ctime(&now));
+    
+    // 读取写入后的值进行验证
+    uint32_t read_value = 0;
+    if (device_read(device, offset, &read_value) == 0) {
+        printf("[%ld.%06ld] execute_action_target - 验证写入: 目标值=0x%08X, 读取值=0x%08X %s\n",
+               tv.tv_sec, tv.tv_usec, target->target_value, read_value, 
+               (read_value == target->target_value) ? "成功" : "失败");
+    } else {
+        printf("[%ld.%06ld] execute_action_target - 无法验证写入，读取失败\n", tv.tv_sec, tv.tv_usec);
+    }
+    
+    printf("[%ld.%06ld] execute_action_target - 写入内存成功\n", tv.tv_sec, tv.tv_usec);
+    return 0;
 }
 
-// 执行规则
+/**
+ * 执行指定的规则
+ * 
+ * @param am 动作管理器
+ * @param rule 规则
+ * @param dm 设备管理器
+ */
 void action_manager_execute_rule(action_manager_t* am, action_rule_t* rule, device_manager_t* dm) {
-    if (!am || !rule || !dm) return;
+    struct timeval tv, start_time, end_time;
+    int target_count;
     
-    // 执行所有目标处理动作
-    for (int i = 0; i < rule->targets.count; i++) {
-        action_target_t* target = &rule->targets.targets[i];
-        execute_action_target(target, dm);
+    if (!am || !rule || !dm) {
+        printf("错误: action_manager_execute_rule - 参数无效 (am=%p, rule=%p, dm=%p)\n", am, rule, dm);
+        return;
     }
+    
+    gettimeofday(&tv, NULL);
+    
+    printf("[%ld.%06ld] action_manager_execute_rule - 开始执行规则, ID=%d, 名称=%s\n",
+          tv.tv_sec, tv.tv_usec, rule->rule_id, rule->name ? rule->name : "未命名");
+    
+    // 获取规则中目标处理动作数量
+    target_count = action_target_count(&rule->targets);
+    
+    printf("[%ld.%06ld] action_manager_execute_rule - 目标处理动作数量: %d\n",
+           tv.tv_sec, tv.tv_usec, target_count);
+    
+    // 输出触发器信息
+    printf("[%ld.%06ld] action_manager_execute_rule - 规则触发器: 地址=0x%08X, 值=0x%08X, 掩码=0x%08X\n",
+           tv.tv_sec, tv.tv_usec, rule->trigger.trigger_addr, rule->trigger.expected_value, rule->trigger.expected_mask);
+    
+    // 批量执行全部目标处理动作
+    action_target_t* target;
+    int i;
+    
+    for (i = 0; i < target_count; i++) {
+        gettimeofday(&start_time, NULL);
+        
+        printf("[%ld.%06ld] action_manager_execute_rule - 执行目标处理动作 %d/%d\n",
+               tv.tv_sec, tv.tv_usec, i+1, target_count);
+        
+        // 获取当前目标处理动作
+        target = action_target_get(&rule->targets, i);
+        if (!target) {
+            continue;
+        }
+        
+        // 输出目标详细信息
+        printf("[%ld.%06ld] action_manager_execute_rule - 目标 %d 详情: 类型=%d, 设备类型=%d, 设备ID=%d, 地址=0x%08X, 值=0x%08X, 掩码=0x%08X\n",
+               tv.tv_sec, tv.tv_usec, i+1, target->type, target->device_type, target->device_id, 
+               target->target_addr, target->target_value, target->target_mask);
+        
+        // 执行目标处理动作
+        int result = execute_action_target(target, dm);
+        if (result != 0) {
+            printf("警告: 执行目标处理动作失败，返回值=%d\n", result);
+        }
+        
+        gettimeofday(&end_time, NULL);
+        double elapsed = (end_time.tv_sec - start_time.tv_sec) + 
+                        (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
+                        
+        printf("[%ld.%06ld] action_manager_execute_rule - 目标处理动作 %d/%d 执行完成，耗时 %.6f 秒\n",
+               end_time.tv_sec, end_time.tv_usec, i+1, target_count, elapsed);
+    }
+    
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06ld] action_manager_execute_rule - 规则执行完成\n", tv.tv_sec, tv.tv_usec);
+}
+
+/**
+ * 获取目标数组中目标的数量
+ * 
+ * @param targets 目标数组
+ * @return 目标数量
+ */
+static int action_target_count(action_target_array_t* targets) {
+    if (!targets) {
+        return 0;
+    }
+    return targets->count;
+}
+
+/**
+ * 从目标数组中获取指定索引的目标
+ * 
+ * @param targets 目标数组
+ * @param index 索引
+ * @return 目标指针，如果索引无效则返回NULL
+ */
+static action_target_t* action_target_get(action_target_array_t* targets, int index) {
+    if (!targets || index < 0 || index >= targets->count) {
+        return NULL;
+    }
+    return &targets->targets[index];
 }

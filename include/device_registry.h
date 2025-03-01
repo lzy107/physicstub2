@@ -26,6 +26,12 @@ const device_register_info_t* device_registry_get_info(int index);
 // 添加设备到注册表（供自注册宏使用）
 void device_registry_add_device(device_register_info_t* info);
 
+// 根据地址获取设备实例
+device_instance_t* device_manager_get_device_by_addr(device_manager_t* dm, uint32_t addr);
+
+// 显示所有已注册设备
+void device_manager_dump_devices(device_manager_t* dm);
+
 // 设备自注册宏
 #define REGISTER_DEVICE(type_id, name, get_ops_func) \
     static device_register_info_t __device_info_##type_id = { \
