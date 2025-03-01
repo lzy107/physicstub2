@@ -6,7 +6,7 @@
 
 - **插件系统**：支持动态加载设备插件
 - **设备管理**：统一的设备注册和管理机制
-- **地址空间**：独立的设备地址空间管理
+- **设备内存**：直接的设备内存管理
 - **事件监控**：支持地址变化监控和触发
 - **动作系统**：可配置的动作规则和回调机制
 - **线程安全**：所有操作都是线程安全的
@@ -30,19 +30,15 @@ make clean && make all && ./build/program
 
 - `src/`: 核心源代码
   - `action_manager.c`: 动作管理器实现
-  - `address_space.c`: 地址空间管理
   - `device_memory.c`: 设备内存管理
   - `device_registry.c`: 设备注册表
-  - `device_test.c`: 设备测试框架
   - `device_types.c`: 设备类型管理
   - `global_monitor.c`: 全局监视器
   - `main.c`: 主程序入口
 - `include/`: 头文件
   - `action_manager.h`: 动作管理器接口
-  - `address_space.h`: 地址空间接口
   - `device_memory.h`: 设备内存接口
   - `device_registry.h`: 设备注册表接口
-  - `device_test.h`: 设备测试接口
   - `device_types.h`: 设备类型接口
   - `global_monitor.h`: 全局监视器接口
 - `plugins/`: 设备插件
