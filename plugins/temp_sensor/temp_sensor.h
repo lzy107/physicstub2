@@ -13,9 +13,8 @@
 
 // 寄存器地址定义
 #define TEMP_REG         0x00    // 温度寄存器 (R)
-#define CONFIG_REG       0x01    // 配置寄存器 (R/W)
-#define TLOW_REG        0x02    // 低温报警寄存器 (R/W)
-#define THIGH_REG       0x03    // 高温报警寄存器 (R/W)
+#define CONFIG_REG       0x04    // 配置寄存器 (RW)
+
 
 // 配置寄存器位定义
 #define CONFIG_SHUTDOWN  (1 << 0)  // 关断模式
@@ -73,4 +72,4 @@ device_memory_t* temp_sensor_get_memory(device_instance_t* instance);
 void temp_alert_callback(void* context, uint32_t addr, uint32_t value);
 void temp_config_callback(void* context, uint32_t addr, uint32_t value);
 
-#endif // TEMP_SENSOR_H 
+#endif // TEMP_SENSOR_H

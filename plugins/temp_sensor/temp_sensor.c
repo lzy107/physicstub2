@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <pthread.h>
+#include "device_types.h"
 #include "temp_sensor/temp_sensor.h"
 #include "device_registry.h"
 #include "action_manager.h"
@@ -15,6 +16,8 @@ REGISTER_DEVICE(DEVICE_TYPE_TEMP_SENSOR, "TEMP_SENSOR", get_temp_sensor_ops);
 
 // 温度报警回调函数
 void temp_alert_callback(void* context, uint32_t addr, uint32_t value) {
+    (void)context;
+    (void)addr;
     if (context) {
         printf("Temperature alert triggered! Current temperature: %.2f°C\n", 
             value * 0.0625);
@@ -23,6 +26,8 @@ void temp_alert_callback(void* context, uint32_t addr, uint32_t value) {
 
 // 配置回调函数
 void temp_config_callback(void* context, uint32_t addr, uint32_t value) {
+    (void)context;
+    (void)addr;
     printf("Temperature sensor configuration changed: 0x%08x\n", value);
 }
 
@@ -85,16 +90,7 @@ int temp_sensor_init(device_instance_t* instance) {
     pthread_mutex_init(&dev_data->mutex, NULL);
     
     // 创建内存区域
-    memory_region_t regions[TEMP_REGION_COUNT] = {
-        {
-            .base_addr = 0,
-            .unit_size = 4,
-            .length = 16,
-            .data = NULL,
-            .device_type = DEVICE_TYPE_TEMP_SENSOR,
-            .device_id = instance->dev_id
-        }
-    };
+    memory_region_t* regions = temp_sensor_memory_regions;
     
     // 获取设备管理器和动作管理器
     device_manager_t* dm = device_manager_get_instance();
@@ -138,11 +134,7 @@ int temp_sensor_init(device_instance_t* instance) {
     uint32_t config_value = 0x00;  // 默认配置：正常模式，报警禁用
     device_memory_write(dev_data->memory, CONFIG_REG, config_value);
     
-    // 设置默认温度阈值
-    uint32_t tlow_value = 0x0A;   // 10°C
-    uint32_t thigh_value = 0x32;  // 50°C
-    device_memory_write(dev_data->memory, TLOW_REG, tlow_value);
-    device_memory_write(dev_data->memory, THIGH_REG, thigh_value);
+
     
     // 设置设备私有数据
     instance->priv_data = dev_data;

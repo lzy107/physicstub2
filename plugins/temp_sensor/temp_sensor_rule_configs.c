@@ -1,6 +1,7 @@
-#include "../../include/device_rule_configs.h"
+#include "device_rule_configs.h"
 #include "temp_sensor.h"
-#include "../../include/action_manager.h"
+#include "temp_sensor/temp_sensor_rule_configs.h"
+#include "action_manager.h"
 
 // 温度传感器设备规则配置
 const device_rule_config_t temp_sensor_rule_configs[] = {
@@ -18,4 +19,4 @@ const device_rule_config_t temp_sensor_rule_configs[] = {
         .callback = NULL
     }
 };
-const int temp_sensor_rule_config_count = sizeof(temp_sensor_rule_configs) / sizeof(temp_sensor_rule_configs[0]); 
+const int temp_sensor_rule_config_count = sizeof(temp_sensor_rule_configs) / sizeof(temp_sensor_rule_configs[0]);
