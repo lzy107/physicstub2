@@ -9,6 +9,8 @@
 struct device_rule_manager;
 struct device_rule;
 typedef struct device_rule device_rule_t;
+struct device_memory;
+typedef struct device_memory device_memory_t;
 
 // 从device_memory.h引入memory_region_config_t结构体
 typedef struct memory_region_config {
@@ -38,8 +40,9 @@ typedef struct {
 // 设备实例结构
 typedef struct device_instance {
     int dev_id;                           // 设备ID
+    int type_id;                          // 设备类型ID
     struct device_instance* next;         // 链表指针
-    void* private_data;                   // 设备私有数据
+    void* priv_data;                      // 设备私有数据
 } device_instance_t;
 
 // 设备类型操作接口
@@ -55,6 +58,10 @@ typedef struct {
     
     // 获取设备规则管理器的钩子函数
     struct device_rule_manager* (*get_rule_manager)(device_instance_t* instance);
+    
+    // 获取设备内存的钩子函数
+    struct device_memory* (*get_memory)(device_instance_t* instance);
+    
     int (*configure_memory)(device_instance_t* instance, memory_region_config_t* configs, int config_count);
 } device_ops_t;
 

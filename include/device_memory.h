@@ -5,9 +5,6 @@
 #include <stddef.h>
 #include "device_types.h"
 
-// 前向声明
-struct global_monitor_t;
-
 // 内存区域结构体 - 四元组结构
 typedef struct {
     uint32_t base_addr;       // 基地址
@@ -19,21 +16,21 @@ typedef struct {
 } memory_region_t;
 
 // 设备内存结构
-typedef struct {
+struct device_memory {
     memory_region_t* regions;     // 内存区域数组
     int region_count;             // 区域数量
-    struct global_monitor_t* monitor;    // 全局监视器
+    void* monitor;                // 监视器指针（类型已改为void*）
     uint32_t device_type;         // 设备类型
     uint32_t device_id;           // 设备ID
-} device_memory_t;
+};
 
 // 创建设备内存
 device_memory_t* device_memory_create(const memory_region_t* regions, int region_count, 
-                                     struct global_monitor_t* monitor, uint32_t device_type, uint32_t device_id);
+                                     void* monitor, uint32_t device_type, uint32_t device_id);
 
 // 创建设备内存（从配置创建）
 device_memory_t* device_memory_create_from_config(memory_region_config_t* configs, int config_count, 
-                                                struct global_monitor_t* monitor, 
+                                                void* monitor, 
                                                 device_type_id_t device_type, int device_id);
 
 // 销毁设备内存

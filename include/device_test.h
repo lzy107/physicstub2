@@ -11,7 +11,6 @@
 #include "device_types.h"  // 包含定义了device_type_id_t的头文件
 #include "device_registry.h"  // 包含定义了device_manager_t的头文件
 #include "action_manager.h"  // 包含定义了action_manager_t的头文件
-#include "global_monitor.h"  // 包含定义了global_monitor_t的头文件
 
 // 不再需要以下前向声明，由相应的头文件提供
 // typedef struct device_instance device_instance_t;
@@ -97,20 +96,20 @@ int run_test_suite(device_manager_t* dm, const test_suite_t* suite);
  * @brief 初始化测试环境
  * 
  * @param dm 设备管理器
- * @param gm 全局监视器
+ * @param gm 监视器（类型已改为void*）
  * @param am 动作管理器
  * @return int 成功返回0，失败返回负数
  */
-int test_environment_init(device_manager_t** dm, global_monitor_t** gm, action_manager_t** am);
+int test_environment_init(device_manager_t** dm, void** gm, action_manager_t** am);
 
 /**
  * @brief 清理测试环境
  * 
  * @param dm 设备管理器
- * @param gm 全局监视器
+ * @param gm 监视器（类型已改为void*）
  * @param am 动作管理器
  */
-void test_environment_cleanup(device_manager_t* dm, global_monitor_t* gm, action_manager_t* am);
+void test_environment_cleanup(device_manager_t* dm, void* gm, action_manager_t* am);
 
 // 设备读写函数的声明
 int device_read(device_instance_t* instance, uint32_t addr, uint32_t* value);

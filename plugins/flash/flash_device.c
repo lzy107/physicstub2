@@ -100,7 +100,7 @@ static int flash_init(device_instance_t* instance) {
         printf("获取Flash设备规则管理器失败\n");
     }
     
-    instance->private_data = dev_data;
+    instance->priv_data = dev_data;
     printf("Flash设备初始化完成\n");
     return 0;
 }
@@ -109,7 +109,7 @@ static int flash_init(device_instance_t* instance) {
 static int flash_read(device_instance_t* instance, uint32_t addr, uint32_t* value) {
     if (!instance || !value) return -1;
     
-    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    flash_device_t* dev_data = (flash_device_t*)instance->priv_data;
     if (!dev_data || !dev_data->memory) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
@@ -125,7 +125,7 @@ static int flash_read(device_instance_t* instance, uint32_t addr, uint32_t* valu
 static int flash_write(device_instance_t* instance, uint32_t addr, uint32_t value) {
     if (!instance) return -1;
     
-    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    flash_device_t* dev_data = (flash_device_t*)instance->priv_data;
     if (!dev_data || !dev_data->memory) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
@@ -165,7 +165,7 @@ static int flash_reset(device_instance_t* instance) {
 static void flash_destroy(device_instance_t* instance) {
     if (!instance) return;
     
-    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    flash_device_t* dev_data = (flash_device_t*)instance->priv_data;
     if (!dev_data) return;
     
     // 清理设备规则
@@ -184,26 +184,26 @@ static void flash_destroy(device_instance_t* instance) {
     
     // 释放设备数据
     free(dev_data);
-    instance->private_data = NULL;
+    instance->priv_data = NULL;
 }
 
 // 获取Flash设备互斥锁
 static pthread_mutex_t* flash_get_mutex(device_instance_t* instance) {
-    if (!instance || !instance->private_data) return NULL;
+    if (!instance || !instance->priv_data) return NULL;
     
-    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    flash_device_t* dev_data = (flash_device_t*)instance->priv_data;
     return &dev_data->mutex;
 }
 
 // 获取Flash设备规则管理器
 static struct device_rule_manager* flash_get_rule_manager(device_instance_t* instance) {
     printf("获取Flash设备规则管理器...\n");
-    if (!instance || !instance->private_data) {
+    if (!instance || !instance->priv_data) {
         printf("Flash设备规则管理器获取失败：实例或私有数据为空\n");
         return NULL;
     }
     
-    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    flash_device_t* dev_data = (flash_device_t*)instance->priv_data;
     printf("Flash设备私有数据获取成功\n");
     
     // 使用设备规则管理器初始化函数
@@ -226,11 +226,11 @@ void register_flash_device_type(device_manager_t* dm) {
 int flash_add_rule(device_instance_t* instance, uint32_t addr, 
                   uint32_t expected_value, uint32_t expected_mask, 
                   const action_target_array_t* targets) {
-    if (!instance || !instance->private_data || !targets) {
+    if (!instance || !instance->priv_data || !targets) {
         return -1;
     }
     
-    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    flash_device_t* dev_data = (flash_device_t*)instance->priv_data;
     
     // 使用通用的规则添加函数
     device_rule_manager_t manager;
@@ -252,7 +252,7 @@ static int flash_configure_memory(device_instance_t* instance, memory_region_con
         return -1;
     }
     
-    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    flash_device_t* dev_data = (flash_device_t*)instance->priv_data;
     if (!dev_data) {
         return -1;
     }

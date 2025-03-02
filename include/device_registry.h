@@ -29,6 +29,9 @@ void device_registry_add_device(device_register_info_t* info);
 // 根据地址获取设备实例
 device_instance_t* device_manager_get_device_by_addr(device_manager_t* dm, uint32_t addr);
 
+// 根据类型和ID获取设备实例
+device_instance_t* device_manager_get_device_by_type_id(device_manager_t* dm, int type_id, int device_id);
+
 // 显示所有已注册设备
 void device_manager_dump_devices(device_manager_t* dm);
 
@@ -44,5 +47,9 @@ void device_manager_dump_devices(device_manager_t* dm);
     static void __register_device_##type_id(void) { \
         device_registry_add_device(&__device_info_##type_id); \
     }
+
+// 设备管理函数声明
+void device_manager_list_devices(device_manager_t* dm);
+void device_manager_cleanup(device_manager_t* dm);
 
 #endif // DEVICE_REGISTRY_H 

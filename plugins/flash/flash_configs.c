@@ -30,7 +30,7 @@ int flash_configure_memory(device_instance_t* instance, memory_region_config_t* 
         return -1;
     }
     
-    flash_device_t* dev_data = (flash_device_t*)instance->private_data;
+    flash_device_t* dev_data = (flash_device_t*)instance->priv_data;
     if (!dev_data) {
         return -1;
     }

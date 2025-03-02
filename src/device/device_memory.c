@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <sys/time.h>
 #include "device_memory.h"
-#include "global_monitor.h"
 #include "device_rule_configs.h"
 #include "action_manager.h"
 
@@ -14,16 +13,37 @@ extern action_manager_t* g_action_manager;
 
 // 查找地址所在的内存区域
 memory_region_t* device_memory_find_region(device_memory_t* mem, uint32_t addr) {
-    if (!mem || !mem->regions || mem->region_count <= 0) return NULL;
+    if (!mem || !mem->regions || mem->region_count <= 0) {
+        printf("错误: device_memory_find_region - 无效的内存对象或内存区域数组，mem=%p, regions=%p, region_count=%d\n", 
+              (void*)mem, mem ? (void*)mem->regions : NULL, mem ? mem->region_count : 0);
+        return NULL;
+    }
+    
+    printf("DEBUG: device_memory_find_region - 开始查找地址 0x%08X，内存区域数量: %d\n", addr, mem->region_count);
     
     for (int i = 0; i < mem->region_count; i++) {
         memory_region_t* region = &mem->regions[i];
         uint32_t region_end = region->base_addr + (region->unit_size * region->length);
         
+        printf("DEBUG: 区域 #%d: 基址=0x%08X, 结束地址=0x%08X, 数据指针=%p\n", 
+               i, region->base_addr, region_end - 1, (void*)region->data);
+        
         // 检查地址是否在当前区域范围内
         if (addr >= region->base_addr && addr < region_end) {
+            printf("DEBUG: 找到地址 0x%08X 所在区域 #%d\n", addr, i);
             return region;
         }
+    }
+    
+    // 未找到匹配区域，打印所有可用的内存区域信息
+    printf("错误：未能找到地址 0x%08X 所在的内存区域\n", addr);
+    printf("可用的内存区域如下：\n");
+    for (int i = 0; i < mem->region_count; i++) {
+        memory_region_t* region = &mem->regions[i];
+        uint32_t region_end = region->base_addr + (region->unit_size * region->length);
+        printf("区域 %d: 基地址=0x%08X, 结束地址=0x%08X, 单元大小=%zu字节, 长度=%zu单元, 设备类型=%d, 设备ID=%d\n",
+               i, region->base_addr, region_end - 1, region->unit_size, region->length, 
+               region->device_type, region->device_id);
     }
     
     return NULL;  // 未找到匹配的区域
@@ -31,7 +51,7 @@ memory_region_t* device_memory_find_region(device_memory_t* mem, uint32_t addr) 
 
 // 创建设备内存（从配置创建）
 device_memory_t* device_memory_create_from_config(memory_region_config_t* configs, int config_count, 
-                                                struct global_monitor_t* monitor, 
+                                                void* monitor, 
                                                 device_type_id_t device_type, int device_id) {
     if (!configs || config_count <= 0) return NULL;
     
@@ -78,7 +98,7 @@ device_memory_t* device_memory_create_from_config(memory_region_config_t* config
 
 // 创建设备内存
 device_memory_t* device_memory_create(const memory_region_t* regions, int region_count, 
-                                     struct global_monitor_t* monitor, uint32_t device_type, uint32_t device_id) {
+                                     void* monitor, uint32_t device_type, uint32_t device_id) {
     if (!regions || region_count <= 0) {
         return NULL;
     }
@@ -178,11 +198,6 @@ int device_memory_read(device_memory_t* mem, uint32_t addr, uint32_t* value) {
     printf("DEBUG: device_memory_read - 地址: 0x%08X, 区域基址: 0x%08X, 偏移: %u, 值: 0x%08X\n", 
            addr, region->base_addr, offset, *value);
     
-    // 记录访问
-    if (mem->monitor) {
-        memory_access_record(mem->monitor, addr, *value, 0, region->device_type, region->device_id);
-    }
-    
     return 0;
 }
 
@@ -250,35 +265,12 @@ int device_memory_write(device_memory_t* mem, uint32_t addr, uint32_t value) {
            tv.tv_sec, (long)tv.tv_usec, addr, region->base_addr, offset, value);
     fflush(stdout);
     
-    // 记录访问
-    if (mem->monitor) {
+   {
         gettimeofday(&tv, NULL);
-        printf("[%ld.%06ld] device_memory_write - 准备记录内存访问\n", tv.tv_sec, (long)tv.tv_usec);
+        printf("[%ld.%06ld] device_memory_write - 无监视器\n", tv.tv_sec, (long)tv.tv_usec);
         fflush(stdout);
         
-        struct timeval start_time, end_time;
-        gettimeofday(&start_time, NULL);
-        
-        // 调用memory_access_record
-        printf("[%ld.%06ld] device_memory_write - 调用 memory_access_record...\n", 
-              start_time.tv_sec, (long)start_time.tv_usec);
-        fflush(stdout);
-        
-        memory_access_record(mem->monitor, addr, value, 1, region->device_type, region->device_id);
-        
-        gettimeofday(&end_time, NULL);
-        double elapsed = (end_time.tv_sec - start_time.tv_sec) + 
-                       (end_time.tv_usec - start_time.tv_usec) / 1000000.0;
-        
-        printf("[%ld.%06ld] device_memory_write - 内存访问记录处理耗时 %.6f 秒\n", 
-              end_time.tv_sec, (long)end_time.tv_usec, elapsed);
-        fflush(stdout);
-    } else {
-        gettimeofday(&tv, NULL);
-        printf("[%ld.%06ld] device_memory_write - 无监视器，跳过记录访问\n", tv.tv_sec, (long)tv.tv_usec);
-        fflush(stdout);
-        
-        // 即使没有监视器，也直接检查设备规则表
+        // 直接检查设备规则表
         gettimeofday(&tv, NULL);
         printf("[%ld.%06ld] device_memory_write - 直接检查设备规则表\n", tv.tv_sec, (long)tv.tv_usec);
         fflush(stdout);
@@ -296,31 +288,76 @@ int device_memory_write(device_memory_t* mem, uint32_t addr, uint32_t value) {
             for (int i = 0; i < rule_count; i++) {
                 const rule_table_entry_t* rule = &rules[i];
                 
+                printf("[%ld.%06ld] device_memory_write - 检查规则 %d: 触发地址=0x%08X, 当前地址=0x%08X\n", 
+                      tv.tv_sec, (long)tv.tv_usec, i, rule->trigger.trigger_addr, addr);
+                fflush(stdout);
+                
                 // 检查是否满足触发条件
                 if (rule->trigger.trigger_addr == addr) {
                     uint32_t masked_value = value & rule->trigger.expected_mask;
                     uint32_t expected_masked = rule->trigger.expected_value & rule->trigger.expected_mask;
+                    
+                    printf("[%ld.%06ld] device_memory_write - 检查规则触发条件: 地址=0x%08X, 值=0x%08X, 掩码=0x%08X, 期望值=0x%08X\n", 
+                          tv.tv_sec, (long)tv.tv_usec, rule->trigger.trigger_addr, value, rule->trigger.expected_mask, rule->trigger.expected_value);
+                    printf("[%ld.%06ld] device_memory_write - 掩码后的值: 0x%08X, 期望的掩码后的值: 0x%08X\n", 
+                          tv.tv_sec, (long)tv.tv_usec, masked_value, expected_masked);
+                    fflush(stdout);
                     
                     if (masked_value == expected_masked) {
                         printf("[%ld.%06ld] device_memory_write - 规则 \"%s\" 触发条件满足，执行处理动作\n", 
                               tv.tv_sec, (long)tv.tv_usec, rule->name);
                         fflush(stdout);
                         
+                        // 打印规则的目标动作信息
+                        printf("[%ld.%06ld] device_memory_write - 规则目标动作数量: %d\n", 
+                              tv.tv_sec, (long)tv.tv_usec, rule->targets.count);
+                        for (int j = 0; j < rule->targets.count; j++) {
+                            action_target_t* target = &rule->targets.targets[j];
+                            printf("[%ld.%06ld] device_memory_write - 目标动作[%d]: 类型=%d, 设备类型=%d, 设备ID=%d, 地址=0x%08X, 值=0x%08X\n", 
+                                  tv.tv_sec, (long)tv.tv_usec, j, target->type, target->device_type, target->device_id, 
+                                  target->target_addr, target->target_value);
+                            fflush(stdout);
+                        }
+                        
                         // 创建临时规则
                         action_rule_t temp_rule;
-                        temp_rule.rule_id = 0;  // 临时ID
+                        memset(&temp_rule, 0, sizeof(temp_rule));
+                        temp_rule.rule_id = 0xFFFF;  // 临时ID
                         temp_rule.name = rule->name;
                         temp_rule.trigger = rule->trigger;
                         temp_rule.priority = rule->priority;
-                        memcpy(&temp_rule.targets, &rule->targets, sizeof(action_target_array_t));
+                        temp_rule.targets = rule->targets;
                         
-                        // 尝试获取全局管理器
-                        extern device_manager_t* device_manager_get_instance(void);
-                        
+                        // 获取设备管理器和动作管理器
                         device_manager_t* dm = device_manager_get_instance();
+                        action_manager_t* am = action_manager_get_instance();
                         
-                        // 由于没有全局的action_manager_get_instance函数，我们只能使用设备管理器
-                        if (dm) {
+                        printf("[%ld.%06ld] device_memory_write - 获取管理器: dm=%p, am=%p\n", 
+                               tv.tv_sec, (long)tv.tv_usec, (void*)dm, (void*)am);
+                        
+                        // 修改目标动作的设备类型和ID
+                        for (int j = 0; j < temp_rule.targets.count; j++) {
+                            action_target_t* target = &temp_rule.targets.targets[j];
+                            // 如果目标动作没有指定设备类型和ID，则使用当前内存对象的设备类型和ID
+                            if (target->device_type == 0) {
+                                target->device_type = mem->device_type;
+                            }
+                            if (target->device_id == 0) {
+                                target->device_id = mem->device_id;
+                            }
+                            printf("[%ld.%06ld] device_memory_write - 更新目标动作[%d]: 类型=%d, 设备类型=%d, 设备ID=%d, 地址=0x%08X, 值=0x%08X\n", 
+                                   tv.tv_sec, (long)tv.tv_usec, j, target->type, target->device_type, 
+                                   target->device_id, target->target_addr, target->target_value);
+                        }
+                        
+                        if (dm && am) {
+                            // 如果找到了设备管理器和动作管理器，则使用动作管理器执行规则
+                            printf("[%ld.%06ld] device_memory_write - 找到设备管理器和动作管理器，执行规则\n", 
+                                   tv.tv_sec, (long)tv.tv_usec);
+                            int result = action_manager_execute_rule(am, &temp_rule, dm);
+                            printf("[%ld.%06ld] device_memory_write - 规则执行结果: %d\n", 
+                                   tv.tv_sec, (long)tv.tv_usec, result);
+                        } else if (dm) {
                             printf("[%ld.%06ld] device_memory_write - 找到设备管理器，但无法获取动作管理器，无法执行规则\n", 
                                   tv.tv_sec, (long)tv.tv_usec);
                             fflush(stdout);
@@ -435,22 +472,6 @@ int device_memory_write_byte(device_memory_t* mem, uint32_t addr, uint8_t value)
     
     region->data[offset] = value;
     
-    // 通知全局监视器（对于字节写入，我们需要处理包含此字节的32位值）
-    if (mem->monitor) {
-        uint32_t aligned_addr = addr & ~0x3;  // 对齐到32位边界
-        
-        // 使用新的函数处理字节写入导致的地址变化
-        global_monitor_handle_address_range_changes(
-            (global_monitor_t*)mem->monitor,
-            region->device_type,
-            region->device_id,
-            aligned_addr,
-            aligned_addr + 4,  // 只处理一个32位地址
-            region->data,
-            region->unit_size * region->length
-        );
-    }
-    
     return 0;
 }
 
@@ -499,23 +520,6 @@ int device_memory_write_buffer(device_memory_t* mem, uint32_t addr, const uint8_
     }
     
     memcpy(region->data + offset, buffer, length);
-    
-    // 通知全局监视器（对于每个对齐的32位地址）
-    if (mem->monitor) {
-        uint32_t start_addr = addr & ~0x3;  // 对齐到32位边界
-        uint32_t end_addr = (addr + length + 3) & ~0x3;  // 对齐到32位边界
-        
-        // 使用新的函数处理地址范围内的监视点变化
-        global_monitor_handle_address_range_changes(
-            (global_monitor_t*)mem->monitor,
-            region->device_type,
-            region->device_id,
-            start_addr,
-            end_addr,
-            region->data,
-            region->unit_size * region->length
-        );
-    }
     
     return 0;
 } 

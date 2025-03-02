@@ -41,36 +41,48 @@ int setup_device_rules(device_rule_manager_t* manager, device_type_id_t device_t
     const device_rule_config_t* configs = NULL;
     int config_count = 0;
     
+    printf("DEBUG: setup_device_rules - 设备类型=%d\n", device_type);
+    
     // 根据设备类型选择规则配置
     switch (device_type) {
         case DEVICE_TYPE_FLASH:
             configs = flash_rule_configs;
             config_count = flash_rule_config_count;
+            printf("DEBUG: setup_device_rules - 选择Flash规则配置，数量=%d, 地址=%p\n", 
+                   config_count, (void*)configs);
             break;
             
         case DEVICE_TYPE_TEMP_SENSOR:
             configs = temp_sensor_rule_configs;
             config_count = temp_sensor_rule_config_count;
+            printf("DEBUG: setup_device_rules - 选择温度传感器规则配置，数量=%d, 地址=%p\n", 
+                   config_count, (void*)configs);
             break;
             
         case DEVICE_TYPE_FPGA:
             configs = fpga_rule_configs;
             config_count = fpga_rule_config_count;
+            printf("DEBUG: setup_device_rules - 选择FPGA规则配置，数量=%d, 地址=%p\n", 
+                   config_count, (void*)configs);
             break;
             
         default:
+            printf("DEBUG: setup_device_rules - 未知设备类型=%d\n", device_type);
             return 0;
     }
     
     // 应用规则配置
     int rule_count = 0;
     for (int i = 0; i < config_count; i++) {
+        printf("DEBUG: setup_device_rules - 处理规则配置 %d/%d\n", i+1, config_count);
+        
         // 创建目标动作
         action_target_t target = create_action_target_from_config(&configs[i]);
         
         // 创建目标动作数组
         action_target_array_t* targets = (action_target_array_t*)malloc(sizeof(action_target_array_t));
         if (!targets) {
+            printf("ERROR: setup_device_rules - 内存分配失败\n");
             continue;
         }
         memset(targets, 0, sizeof(action_target_array_t));
@@ -80,11 +92,17 @@ int setup_device_rules(device_rule_manager_t* manager, device_type_id_t device_t
         if (device_rule_add(manager, configs[i].addr, configs[i].expected_value, 
                            configs[i].expected_mask, targets) == 0) {
             rule_count++;
+            printf("DEBUG: setup_device_rules - 规则添加成功，当前规则数量=%d\n", rule_count);
+        } else {
+            printf("ERROR: setup_device_rules - 规则添加失败\n");
         }
         
         // 释放临时分配的内存
         free(targets);
     }
+    
+    printf("DEBUG: setup_device_rules - 设备类型=%d的规则设置完成，共添加%d条规则\n", 
+           device_type, rule_count);
     
     return rule_count;
 }

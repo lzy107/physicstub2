@@ -13,7 +13,6 @@
 // #include "../../include/device_test.h"
 #include "../../include/device_registry.h"
 #include "../../include/device_types.h"
-#include "../../include/global_monitor.h"
 #include "../../include/action_manager.h"
 
 // 核心组件头文件
@@ -71,16 +70,6 @@ static int run_simulator_demo(void) {
         return 1;
     }
     
-    // 使用动作管理器和设备管理器创建全局监视器
-    global_monitor_t* gm = global_monitor_create(am, dm);
-    
-    if (!gm) {
-        printf("错误: 无法创建全局监视器\n");
-        device_manager_destroy(dm);
-        action_manager_destroy(am);
-        return 1;
-    }
-    
     // 注册设备类型
     register_all_device_types(dm);
     
@@ -93,22 +82,15 @@ static int run_simulator_demo(void) {
         printf("错误: 创建设备实例失败\n");
         // 清理资源
         device_manager_destroy(dm);
-        global_monitor_destroy(gm);
         action_manager_destroy(am);
         return 1;
     }
-    
-    // 添加监视点
-    global_monitor_add_watch(gm, DEVICE_TYPE_FLASH, 0, FLASH_REG_STATUS);
-    global_monitor_add_watch(gm, DEVICE_TYPE_FPGA, 0, FPGA_STATUS_REG);
-    global_monitor_add_watch(gm, DEVICE_TYPE_TEMP_SENSOR, 0, TEMP_REG);
     
     // 在这里可以添加演示代码
     // ...
     
     // 清理资源
     device_manager_destroy(dm);
-    global_monitor_destroy(gm);
     action_manager_destroy(am);
     
     return 0;

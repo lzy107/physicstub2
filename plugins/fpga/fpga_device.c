@@ -72,17 +72,17 @@ static const memory_region_t fpga_memory_regions[] = {
 
 // 获取FPGA设备互斥锁
 static pthread_mutex_t* fpga_get_mutex(device_instance_t* instance) {
-    if (!instance || !instance->private_data) return NULL;
+    if (!instance || !instance->priv_data) return NULL;
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     return &dev_data->mutex;
 }
 
 // 获取FPGA设备规则管理器
 struct device_rule_manager* fpga_get_rule_manager(device_instance_t* instance) {
-    if (!instance || !instance->private_data) return NULL;
+    if (!instance || !instance->priv_data) return NULL;
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     
     // 初始化规则管理器
     dev_data->rule_manager.rules = dev_data->device_rules;
@@ -163,7 +163,7 @@ int fpga_device_init(device_instance_t* instance) {
         dev_data->rule_count = setup_device_rules(rule_manager, DEVICE_TYPE_FPGA);
     }
     
-    instance->private_data = dev_data;
+    instance->priv_data = dev_data;
     
     return 0;
 }
@@ -172,7 +172,7 @@ int fpga_device_init(device_instance_t* instance) {
 int fpga_device_read(device_instance_t* instance, uint32_t addr, uint32_t* value) {
     if (!instance || !value) return -1;
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     if (!dev_data || !dev_data->memory) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
@@ -188,7 +188,7 @@ int fpga_device_read(device_instance_t* instance, uint32_t addr, uint32_t* value
 int fpga_device_write(device_instance_t* instance, uint32_t addr, uint32_t value) {
     if (!instance) return -1;
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     if (!dev_data || !dev_data->memory) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
@@ -204,7 +204,7 @@ int fpga_device_write(device_instance_t* instance, uint32_t addr, uint32_t value
 int fpga_device_read_buffer(device_instance_t* instance, uint32_t addr, uint8_t* buffer, size_t length) {
     if (!instance || !buffer) return -1;
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     if (!dev_data || !dev_data->memory) return -1;
     
     // 简单实现，每次读取一个字节
@@ -223,7 +223,7 @@ int fpga_device_read_buffer(device_instance_t* instance, uint32_t addr, uint8_t*
 int fpga_device_write_buffer(device_instance_t* instance, uint32_t addr, const uint8_t* buffer, size_t length) {
     if (!instance || !buffer) return -1;
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     if (!dev_data || !dev_data->memory) return -1;
     
     // 简单实现，每次写入一个字节
@@ -240,7 +240,7 @@ int fpga_device_write_buffer(device_instance_t* instance, uint32_t addr, const u
 int fpga_device_reset(device_instance_t* instance) {
     if (!instance) return -1;
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     if (!dev_data || !dev_data->memory) return -1;
     
     pthread_mutex_lock(&dev_data->mutex);
@@ -257,7 +257,7 @@ int fpga_device_reset(device_instance_t* instance) {
 void fpga_device_destroy(device_instance_t* instance) {
     if (!instance) return;
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     if (!dev_data) return;
     
     // 销毁互斥锁
@@ -268,14 +268,14 @@ void fpga_device_destroy(device_instance_t* instance) {
     
     // 释放设备数据
     free(dev_data);
-    instance->private_data = NULL;
+    instance->priv_data = NULL;
 }
 
 // 配置内存区域
 int fpga_configure_memory(device_instance_t* instance, memory_region_config_t* configs, int config_count) {
     if (!instance || !configs || config_count <= 0) return -1;
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     if (!dev_data) return -1;
     
     // 重新配置内存区域
@@ -310,11 +310,11 @@ int fpga_configure_memory(device_instance_t* instance, memory_region_config_t* c
 int fpga_add_rule(device_instance_t* instance, uint32_t addr, 
                  uint32_t expected_value, uint32_t expected_mask, 
                  const action_target_array_t* targets) {
-    if (!instance || !instance->private_data || !targets) {
+    if (!instance || !instance->priv_data || !targets) {
         return -1;
     }
     
-    fpga_device_t* dev_data = (fpga_device_t*)instance->private_data;
+    fpga_device_t* dev_data = (fpga_device_t*)instance->priv_data;
     
     // 使用通用的规则添加函数
     device_rule_manager_t manager;

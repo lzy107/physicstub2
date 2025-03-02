@@ -5,7 +5,6 @@
 #include <stdint.h>
 #include "device_types.h"
 #include "device_memory.h"
-#include "global_monitor.h"
 #include "device_rules.h"
 #include "action_manager.h"
 

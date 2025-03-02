@@ -3,11 +3,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
-#include "temp_sensor.h"
-#include "../include/device_registry.h"
-#include "../include/action_manager.h"
-#include "../include/device_memory.h"
-#include "../include/device_rule_configs.h"
+#include <pthread.h>
+#include "temp_sensor/temp_sensor.h"
+#include "device_registry.h"
+#include "action_manager.h"
+#include "device_memory.h"
+#include "device_rule_configs.h"
 
 // 注册温度传感器设备
 REGISTER_DEVICE(DEVICE_TYPE_TEMP_SENSOR, "TEMP_SENSOR", get_temp_sensor_ops);
@@ -27,105 +28,202 @@ void temp_config_callback(void* context, uint32_t addr, uint32_t value) {
 
 // 获取温度传感器互斥锁
 static pthread_mutex_t* temp_sensor_get_mutex(device_instance_t* instance) {
-    if (!instance || !instance->private_data) return NULL;
-    
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
+    if (!instance || !instance->priv_data) {
+        return NULL;
+    }
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
     return &dev_data->mutex;
 }
 
 // 获取温度传感器规则管理器
 struct device_rule_manager* temp_sensor_get_rule_manager(device_instance_t* instance) {
-    if (!instance || !instance->private_data) return NULL;
-    
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
+    if (!instance || !instance->priv_data) {
+        printf("获取规则管理器失败：无效的设备实例\n");
+        return NULL;
+    }
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
     
     // 初始化规则管理器
+    dev_data->rule_manager.mutex = &dev_data->mutex;
     dev_data->rule_manager.rules = dev_data->device_rules;
     dev_data->rule_manager.rule_count = dev_data->rule_count;
+    dev_data->rule_manager.rule_capacity = MAX_DEVICE_RULES;
+    
+    printf("获取规则管理器：规则数量=%d，最大规则数=%d\n", 
+           dev_data->rule_count, dev_data->rule_manager.rule_capacity);
     
     return &dev_data->rule_manager;
 }
 
+// 获取温度传感器设备内存
+device_memory_t* temp_sensor_get_memory(device_instance_t* instance) {
+    if (!instance || !instance->priv_data) {
+        return NULL;
+    }
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
+    return dev_data->memory;
+}
+
 // 初始化温度传感器
 int temp_sensor_init(device_instance_t* instance) {
-    if (!instance) return -1;
-    
+    if (!instance) {
+        printf("温度传感器初始化失败：无效的设备实例\n");
+        return -1;
+    }
+
     // 分配设备私有数据
     temp_sensor_device_t* dev_data = (temp_sensor_device_t*)calloc(1, sizeof(temp_sensor_device_t));
-    if (!dev_data) return -1;
+    if (!dev_data) {
+        printf("温度传感器初始化失败：无法分配内存\n");
+        return -1;
+    }
+    
+    // 初始化规则计数
+    dev_data->rule_count = 0;
     
     // 初始化互斥锁
     pthread_mutex_init(&dev_data->mutex, NULL);
     
-    // 创建设备内存
+    // 创建内存区域
     memory_region_t regions[TEMP_REGION_COUNT] = {
         {
             .base_addr = 0,
             .unit_size = 4,
-            .length = 16,  // 增加长度以支持更多寄存器
+            .length = 16,
             .data = NULL,
             .device_type = DEVICE_TYPE_TEMP_SENSOR,
             .device_id = instance->dev_id
         }
     };
     
-    dev_data->memory = device_memory_create(
-        regions, 
-        TEMP_REGION_COUNT, 
-        NULL, 
-        DEVICE_TYPE_TEMP_SENSOR, 
-        instance->dev_id
-    );
-    
-    if (!dev_data->memory) {
+    // 获取设备管理器和动作管理器
+    device_manager_t* dm = device_manager_get_instance();
+    if (!dm) {
+        printf("温度传感器初始化失败：无法获取设备管理器\n");
         pthread_mutex_destroy(&dev_data->mutex);
         free(dev_data);
         return -1;
     }
     
-    // 初始化规则计数器
-    dev_data->rule_count = 0;
-    
-    // 初始化设备规则
-    struct device_rule_manager* rule_manager = temp_sensor_get_rule_manager(instance);
-    if (rule_manager) {
-        // 使用全局规则配置设置规则
-        dev_data->rule_count = setup_device_rules(rule_manager, DEVICE_TYPE_TEMP_SENSOR);
+    // 获取动作管理器并关联设备管理器
+    action_manager_t* am = action_manager_get_instance();
+    if (am) {
+        printf("温度传感器初始化：关联动作管理器与设备管理器\n");
+        action_manager_set_device_manager(am, dm);
+    } else {
+        printf("温度传感器初始化：警告 - 无法获取动作管理器\n");
     }
     
-    // 初始化温度值（25°C）
-    uint32_t initial_temp = 2500;  // 25°C (0.0625°C/bit)
+    // 分配内存
+    dev_data->memory = device_memory_create(
+        regions, 
+        TEMP_REGION_COUNT, 
+        am,  // 将动作管理器作为监视器传递给内存
+        DEVICE_TYPE_TEMP_SENSOR, 
+        instance->dev_id
+    );
     
-    // 在设备内存中设置初始值
-    device_memory_write(dev_data->memory, TEMP_REG, initial_temp);
-    device_memory_write(dev_data->memory, CONFIG_REG, CONFIG_ALERT);
-    device_memory_write(dev_data->memory, TLOW_REG, 1000);  // 10°C
-    device_memory_write(dev_data->memory, THIGH_REG, 3000); // 30°C
-    device_memory_write(dev_data->memory, 0x10, initial_temp); // 初始模拟温度也是25°C
+    if (!dev_data->memory) {
+        printf("温度传感器初始化失败：无法分配内存\n");
+        pthread_mutex_destroy(&dev_data->mutex);
+        free(dev_data);
+        return -1;
+    }
     
-    printf("DEBUG: 温度传感器设备内存初始化完成，ID: %d\n", instance->dev_id);
+    // 设置初始温度值 (25°C = 0x19)
+    uint32_t temp_value = 0x19;
+    device_memory_write(dev_data->memory, TEMP_REG, temp_value);
+    
+    // 设置默认配置
+    uint32_t config_value = 0x00;  // 默认配置：正常模式，报警禁用
+    device_memory_write(dev_data->memory, CONFIG_REG, config_value);
+    
+    // 设置默认温度阈值
+    uint32_t tlow_value = 0x0A;   // 10°C
+    uint32_t thigh_value = 0x32;  // 50°C
+    device_memory_write(dev_data->memory, TLOW_REG, tlow_value);
+    device_memory_write(dev_data->memory, THIGH_REG, thigh_value);
     
     // 设置设备私有数据
-    instance->private_data = dev_data;
+    instance->priv_data = dev_data;
     
+    // 获取规则管理器
+    printf("温度传感器初始化：获取规则管理器\n");
+    device_rule_manager_t* rule_manager = temp_sensor_get_rule_manager(instance);
+    if (!rule_manager) {
+        printf("温度传感器初始化失败：无法获取规则管理器\n");
+        device_memory_destroy(dev_data->memory);
+        pthread_mutex_destroy(&dev_data->mutex);
+        free(dev_data);
+        return -1;
+    }
+    
+    // 设置设备规则
+    printf("温度传感器初始化：设置设备规则\n");
+    int rule_count = setup_device_rules(rule_manager, DEVICE_TYPE_TEMP_SENSOR);
+    printf("温度传感器初始化：已加载 %d 个规则\n", rule_count);
+    dev_data->rule_count = rule_count;
+    
+    printf("温度传感器初始化完成\n");
     return 0;
 }
 
 // 读取温度传感器寄存器
 int temp_sensor_read(device_instance_t* instance, uint32_t addr, uint32_t* value) {
-    if (!instance || !value) return -1;
+    if (!instance || !value) {
+        printf("DEBUG: temp_sensor_read - 无效参数: instance=%p, value=%p\n", 
+               instance, value);
+        return -1;
+    }
     
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
-    if (!dev_data || !dev_data->memory) return -1;
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
+    if (!dev_data) {
+        printf("DEBUG: temp_sensor_read - 无效设备数据: priv_data为NULL\n");
+        return -1;
+    }
+    
+    if (!dev_data->memory) {
+        printf("DEBUG: temp_sensor_read - 无效设备内存: memory为NULL\n");
+        return -1;
+    }
+    
+    printf("DEBUG: temp_sensor_read - 温度传感器设备: ID=%d, memory=%p, region_count=%d\n",
+           instance->dev_id, dev_data->memory, dev_data->memory->region_count);
+    
+    // 检查内存结构有效性
+    if (dev_data->memory->region_count <= 0 || !dev_data->memory->regions) {
+        printf("严重错误: temp_sensor_read - 内存区域无效: region_count=%d, regions=%p\n",
+              dev_data->memory->region_count, (void*)dev_data->memory->regions);
+        return -1;
+    }
+    
+    // 检查每个内存区域
+    for (int i = 0; i < dev_data->memory->region_count; i++) {
+        memory_region_t* region = &dev_data->memory->regions[i];
+        printf("DEBUG: temp_sensor_read - 区域[%d]: 基址=0x%08X, 单位大小=%zu, 长度=%zu, 数据指针=%p\n",
+               i, region->base_addr, region->unit_size, region->length, region->data);
+        
+        // 检查数据指针有效性
+        if (!region->data) {
+            printf("严重错误: temp_sensor_read - 区域[%d]的数据指针为NULL\n", i);
+            return -1;
+        }
+        
+        // 检查地址是否在当前区域范围内
+        if (addr >= region->base_addr && addr < region->base_addr + (region->unit_size * region->length)) {
+            printf("DEBUG: temp_sensor_read - 地址0x%08X位于区域[%d]内\n", addr, i);
+        }
+    }
     
     pthread_mutex_lock(&dev_data->mutex);
     
     // 直接从内存读取数据
+    printf("DEBUG: temp_sensor_read - 准备读取地址 0x%08X\n", addr);
     int ret = device_memory_read(dev_data->memory, addr, value);
     
     // 调试输出
-    printf("DEBUG: 温度传感器读取寄存器 0x%08X, 值 = 0x%08X, 返回值 = %d\n", 
-           addr, *value, ret);
+    printf("DEBUG: temp_sensor_read - 读取地址=0x%08X, 值=0x%08X, 返回值=%d\n", 
+           addr, ret == 0 ? *value : 0, ret);
     
     pthread_mutex_unlock(&dev_data->mutex);
     return ret;
@@ -133,15 +231,53 @@ int temp_sensor_read(device_instance_t* instance, uint32_t addr, uint32_t* value
 
 // 写入温度传感器寄存器
 int temp_sensor_write(device_instance_t* instance, uint32_t addr, uint32_t value) {
-    if (!instance) return -1;
+    if (!instance) {
+        printf("DEBUG: temp_sensor_write - 无效参数: instance=%p\n", instance);
+        return -1;
+    }
     
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
-    if (!dev_data || !dev_data->memory) return -1;
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
+    if (!dev_data || !dev_data->memory) {
+        printf("DEBUG: temp_sensor_write - 无效设备数据: dev_data=%p, memory=%p\n", 
+               dev_data, dev_data ? dev_data->memory : NULL);
+        return -1;
+    }
+    
+    printf("DEBUG: temp_sensor_write - 温度传感器设备: ID=%d, memory=%p, region_count=%d\n",
+           instance->dev_id, dev_data->memory, dev_data->memory->region_count);
+           
+    // 检查内存结构有效性
+    if (dev_data->memory->region_count <= 0 || !dev_data->memory->regions) {
+        printf("严重错误: temp_sensor_write - 内存区域无效: region_count=%d, regions=%p\n",
+              dev_data->memory->region_count, (void*)dev_data->memory->regions);
+        return -1;
+    }
+    
+    // 检查每个内存区域
+    for (int i = 0; i < dev_data->memory->region_count; i++) {
+        memory_region_t* region = &dev_data->memory->regions[i];
+        printf("DEBUG: temp_sensor_write - 区域[%d]: 基址=0x%08X, 单位大小=%zu, 长度=%zu, 数据指针=%p\n",
+               i, region->base_addr, region->unit_size, region->length, region->data);
+        
+        // 检查数据指针有效性
+        if (!region->data) {
+            printf("严重错误: temp_sensor_write - 区域[%d]的数据指针为NULL\n", i);
+            return -1;
+        }
+        
+        // 检查地址是否在当前区域范围内
+        if (addr >= region->base_addr && addr < region->base_addr + (region->unit_size * region->length)) {
+            printf("DEBUG: temp_sensor_write - 地址0x%08X位于区域[%d]内\n", addr, i);
+        }
+    }
     
     pthread_mutex_lock(&dev_data->mutex);
     
     // 写入设备内存
+    printf("DEBUG: temp_sensor_write - 开始写入地址 0x%08X, 值=0x%08X, 内存指针=%p\n", 
+           addr, value, dev_data->memory);
     int ret = device_memory_write(dev_data->memory, addr, value);
+    printf("DEBUG: temp_sensor_write - 写入完成，返回值=%d\n", ret);
     
     pthread_mutex_unlock(&dev_data->mutex);
     return ret;
@@ -151,7 +287,7 @@ int temp_sensor_write(device_instance_t* instance, uint32_t addr, uint32_t value
 int temp_sensor_read_buffer(device_instance_t* instance, uint32_t addr, uint8_t* buffer, size_t length) {
     if (!instance || !buffer) return -1;
     
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
     if (!dev_data || !dev_data->memory) return -1;
     
     // 简单实现，每次读取一个字节
@@ -170,7 +306,7 @@ int temp_sensor_read_buffer(device_instance_t* instance, uint32_t addr, uint8_t*
 int temp_sensor_write_buffer(device_instance_t* instance, uint32_t addr, const uint8_t* buffer, size_t length) {
     if (!instance || !buffer) return -1;
     
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
     if (!dev_data || !dev_data->memory) return -1;
     
     // 简单实现，每次写入一个字节
@@ -195,13 +331,20 @@ int temp_sensor_reset(device_instance_t* instance) {
 
 // 销毁温度传感器
 void temp_sensor_destroy(device_instance_t* instance) {
-    if (!instance || !instance->private_data) return;
+    if (!instance || !instance->priv_data) {
+        printf("温度传感器销毁失败：无效的设备实例\n");
+        return;
+    }
     
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
+    
+    printf("销毁温度传感器设备 ID=%d\n", instance->dev_id);
     
     // 销毁内存
     if (dev_data->memory) {
+        printf("销毁温度传感器内存\n");
         device_memory_destroy(dev_data->memory);
+        dev_data->memory = NULL;
     }
     
     // 销毁互斥锁
@@ -209,14 +352,16 @@ void temp_sensor_destroy(device_instance_t* instance) {
     
     // 释放私有数据
     free(dev_data);
-    instance->private_data = NULL;
+    instance->priv_data = NULL;
+    
+    printf("温度传感器设备销毁完成\n");
 }
 
 // 配置内存区域
 int temp_sensor_configure_memory(device_instance_t* instance, memory_region_config_t* configs, int config_count) {
     if (!instance || !configs || config_count <= 0) return -1;
     
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
     if (!dev_data) return -1;
     
     // 销毁现有内存
@@ -265,6 +410,7 @@ device_ops_t* get_temp_sensor_ops(void) {
         .destroy = temp_sensor_destroy,
         .get_mutex = temp_sensor_get_mutex,
         .get_rule_manager = temp_sensor_get_rule_manager,
+        .get_memory = temp_sensor_get_memory,
         .configure_memory = temp_sensor_configure_memory
     };
     
@@ -283,13 +429,17 @@ void register_temp_sensor_device_type(device_manager_t* dm) {
 int temp_sensor_add_rule(device_instance_t* instance, uint32_t addr, 
                         uint32_t expected_value, uint32_t expected_mask, 
                         const action_target_array_t* targets) {
-    if (!instance || !instance->private_data || !targets) return -1;
+    if (!instance || !instance->priv_data || !targets) {
+        printf("DEBUG: temp_sensor_add_rule - 无效参数: instance=%p, priv_data=%p, targets=%p\n", 
+               instance, instance ? instance->priv_data : NULL, targets);
+        return -1;
+    }
     
-    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->private_data;
+    temp_sensor_device_t* dev_data = (temp_sensor_device_t*)instance->priv_data;
     
     // 检查规则数量是否已达上限
     if (dev_data->rule_count >= 8) {
-        printf("温度传感器规则数量已达上限\n");
+        printf("DEBUG: temp_sensor_add_rule - 温度传感器规则数量已达上限: %d\n", dev_data->rule_count);
         return -1;
     }
     
@@ -299,10 +449,26 @@ int temp_sensor_add_rule(device_instance_t* instance, uint32_t addr,
     rule->expected_value = expected_value;
     rule->expected_mask = expected_mask;
     
+    // 检查并输出目标信息
+    printf("DEBUG: 添加规则 - 地址=0x%08X, 预期值=0x%08X, 掩码=0x%08X, 目标数量=%d\n", 
+           addr, expected_value, expected_mask, targets->count);
+    
+    for (int i = 0; i < targets->count; i++) {
+        const action_target_t* target = &targets->targets[i];
+        printf("DEBUG:   目标 #%d: 类型=%d, 设备类型=%d, 设备ID=%d, 地址=0x%08X, 值=0x%08X, 掩码=0x%08X\n", 
+               i, target->type, target->device_type, target->device_id, 
+               target->target_addr, target->target_value, target->target_mask);
+    }
+    
     // 复制目标数组
     memcpy(&rule->targets, targets, sizeof(action_target_array_t));
     
+    // 保存规则ID并递增计数器
+    int rule_id = dev_data->rule_count;
     dev_data->rule_count++;
     
-    return 0;
+    printf("DEBUG: 温度传感器规则添加成功，ID=%d，当前规则总数=%d\n", 
+           rule_id, dev_data->rule_count);
+    
+    return rule_id;
 }

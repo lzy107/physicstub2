@@ -7,7 +7,6 @@
 #include <sys/time.h>
 #include "device_manager.h"
 #include "device_memory.h"
-#include "global_monitor.h"
 #include "action_manager.h"
 #include "temp_sensor.h"
 
@@ -40,17 +39,20 @@ int test_temp_sensor_rule_config() {
     printf("[%ld.%06ld] 设备管理器创建成功: %p\n", tv.tv_sec, tv.tv_usec, (void*)dm);
     fflush(stdout);
     
-    // 创建全局监视器
-    global_monitor_t* gm = global_monitor_create(dm);
-    if (!gm) {
-        printf("[%ld.%06ld] 创建全局监视器失败\n", tv.tv_sec, tv.tv_usec);
+    // 创建全局监视器（替换为NULL，因为已移除全局监视器）
+    void* gm = NULL;
+    
+    // 创建动作管理器
+    action_manager_t* am = action_manager_create();
+    if (!am) {
+        printf("[%ld.%06ld] 创建动作管理器失败\n", tv.tv_sec, tv.tv_usec);
         fflush(stdout);
         device_manager_destroy(dm);
         return -1;
     }
     
     gettimeofday(&tv, NULL);
-    printf("[%ld.%06ld] 全局监视器创建成功: %p\n", tv.tv_sec, tv.tv_usec, (void*)gm);
+    printf("[%ld.%06ld] 动作管理器创建成功: %p\n", tv.tv_sec, tv.tv_usec, (void*)am);
     fflush(stdout);
     
     // 注册温度传感器设备类型
@@ -61,7 +63,7 @@ int test_temp_sensor_rule_config() {
     if (temp_sensor_register(dm) != 0) {
         printf("[%ld.%06ld] 注册温度传感器设备类型失败\n", tv.tv_sec, tv.tv_usec);
         fflush(stdout);
-        global_monitor_destroy(gm);
+        action_manager_destroy(am);
         device_manager_destroy(dm);
         return -1;
     }
@@ -79,7 +81,7 @@ int test_temp_sensor_rule_config() {
     if (!temp_sensor) {
         printf("[%ld.%06ld] 创建温度传感器设备实例失败\n", tv.tv_sec, tv.tv_usec);
         fflush(stdout);
-        global_monitor_destroy(gm);
+        action_manager_destroy(am);
         device_manager_destroy(dm);
         return -1;
     }
@@ -98,7 +100,7 @@ int test_temp_sensor_rule_config() {
         printf("[%ld.%06ld] 获取温度传感器设备内存失败\n", tv.tv_sec, tv.tv_usec);
         fflush(stdout);
         device_destroy(dm, temp_sensor);
-        global_monitor_destroy(gm);
+        action_manager_destroy(am);
         device_manager_destroy(dm);
         return -1;
     }
@@ -116,72 +118,88 @@ int test_temp_sensor_rule_config() {
         fflush(stdout);
     }
     
-    // 创建规则：当寄存器0x4的值为0x3时，将寄存器0x8的值设置为0x5
-    gettimeofday(&tv, NULL);
-    printf("[%ld.%06ld] 开始创建规则\n", tv.tv_sec, tv.tv_usec);
-    fflush(stdout);
+    // 添加更多调试输出，查看内存当前的内容
+    printf("[%ld.%06ld] 检查温度传感器设备内存初始状态:\n", tv.tv_sec, tv.tv_usec);
     
-    action_target_array_t targets;
-    action_target_array_init(&targets);
+    // 检查温度传感器设备私有数据
+    temp_sensor_device_t* ts_dev = (temp_sensor_device_t*)temp_sensor->priv_data;
+    printf("[%ld.%06ld] 温度传感器设备指针: %p\n", tv.tv_sec, tv.tv_usec, (void*)temp_sensor);
+    printf("[%ld.%06ld] 温度传感器私有数据指针: %p\n", tv.tv_sec, tv.tv_usec, (void*)ts_dev);
+    printf("[%ld.%06ld] 温度传感器内存指针: %p\n", tv.tv_sec, tv.tv_usec, ts_dev ? (void*)ts_dev->memory : NULL);
     
-    action_target_t target;
-    memset(&target, 0, sizeof(action_target_t));
-    target.type = ACTION_TYPE_WRITE;
-    target.device_type = DEVICE_TYPE_TEMP_SENSOR;
-    target.device_id = 0;
-    target.target_addr = 0x8;  // 目标地址
-    target.target_value = 0x5; // 目标值
-    target.target_mask = 0xFFFFFFFF; // 掩码
+    if (ts_dev && ts_dev->memory) {
+        printf("[%ld.%06ld] 温度传感器内存区域数量: %d\n", tv.tv_sec, tv.tv_usec, ts_dev->memory->region_count);
+        for (int i = 0; i < ts_dev->memory->region_count; i++) {
+            printf("[%ld.%06ld] 内存区域 #%d: 基址=0x%08X, 数据指针=%p\n", 
+                   tv.tv_sec, tv.tv_usec, i, ts_dev->memory->regions[i].base_addr, 
+                   ts_dev->memory->regions[i].data);
+        }
+    }
     
-    action_target_add_to_array(&targets, &target);
-    
-    gettimeofday(&tv, NULL);
-    printf("[%ld.%06ld] 已创建目标配置: 类型=%d, 设备类型=%d, 设备ID=%d, 地址=0x%08X, 值=0x%08X, 掩码=0x%08X\n", 
-           tv.tv_sec, tv.tv_usec, target.type, target.device_type, target.device_id, 
-           target.target_addr, target.target_value, target.target_mask);
-    fflush(stdout);
-    
-    // 添加监视点并设置规则
-    gettimeofday(&tv, NULL);
-    printf("[%ld.%06ld] 开始设置监视规则\n", tv.tv_sec, tv.tv_usec);
-    printf("[%ld.%06ld] 参数: 设备类型=%d, 设备ID=%d, 地址=0x%08X, 期望值=0x%08X, 掩码=0x%08X\n", 
-           tv.tv_sec, tv.tv_usec, DEVICE_TYPE_TEMP_SENSOR, 0, 0x4, 0x3, 0xFFFFFFFF);
-    fflush(stdout);
-    
-    // 打印全局监视器的状态
-    printf("[%ld.%06ld] 全局监视器信息: %p, device_manager=%p\n", 
-           tv.tv_sec, tv.tv_usec, (void*)gm, (void*)gm->device_manager);
-    if (gm->action_manager) {
-        printf("[%ld.%06ld] 动作管理器信息: %p, rule_count=%d\n", 
-               tv.tv_sec, tv.tv_usec, (void*)gm->action_manager, gm->action_manager->rule_count);
-    } else {
-        printf("[%ld.%06ld] 警告: 动作管理器为NULL\n", tv.tv_sec, tv.tv_usec);
+    for (uint32_t addr = 0; addr < 16; addr += 4) {
+        uint32_t value = 0;
+        int read_ret = device_read(temp_sensor, addr, &value);
+        printf("[%ld.%06ld] 地址 0x%08X: 0x%08X (读取结果: %d)\n", 
+               tv.tv_sec, tv.tv_usec, addr, read_ret == 0 ? value : 0, read_ret);
     }
     fflush(stdout);
     
-    int rule_id = global_monitor_setup_watch_rule(gm, DEVICE_TYPE_TEMP_SENSOR, 0, 0x4, 0x3, 0xFFFFFFFF, &targets);
+    // 检查温度传感器内存的有效性
+    printf("[%ld.%06ld] 检查温度传感器内存是否有效:\n", tv.tv_sec, tv.tv_usec);
+    printf("[%ld.%06ld] memory->regions[0].data: %p\n", tv.tv_sec, tv.tv_usec, memory->regions[0].data);
+    
+    // 检查寄存器地址
+    printf("[%ld.%06ld] 温度寄存器地址: TEMP_REG=0x%02X, CONFIG_REG=0x%02X\n", 
+           tv.tv_sec, tv.tv_usec, TEMP_REG, CONFIG_REG);
+    fflush(stdout);
+    
+    // 构建动作目标
+    action_target_t target;
+    action_target_array_t targets;
+    memset(&target, 0, sizeof(target));
+    memset(&targets, 0, sizeof(targets));
+    
+    // 配置目标 - 使用在init中已初始化的寄存器地址
+    target.device_type = DEVICE_TYPE_TEMP_SENSOR;
+    target.device_id = 0;
+    target.target_addr = 0x0;  // 修改为温度寄存器地址
+    target.target_value = 0x5;
+    target.type = ACTION_TYPE_WRITE;  // 添加动作类型
+    target.target_mask = 0xFFFFFFFF;  // 添加掩码
+    
+    // 添加到目标数组
+    action_target_array_init(&targets);
+    action_target_array_add(&targets, &target);
+    
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06ld] 配置规则: 当温度传感器(ID=0)地址0x%X的值为0x%X时，将地址0x%X的值设置为0x%X\n",
+           tv.tv_sec, tv.tv_usec, 0x0, 0x3, 0x0, 0x5);
+    fflush(stdout);
+
+    // 直接添加温度传感器规则 - 使用已知有效的寄存器地址
+    int rule_id = temp_sensor_add_rule(temp_sensor, 0x0, 0x3, 0xF, &targets);
     gettimeofday(&tv, NULL);
     if (rule_id < 0) {
-        printf("[%ld.%06ld] 设置监视规则失败，返回值=%d\n", tv.tv_sec, tv.tv_usec, rule_id);
+        printf("[%ld.%06ld] 设置温度传感器规则失败，返回值=%d\n", tv.tv_sec, tv.tv_usec, rule_id);
         fflush(stdout);
         device_destroy(dm, temp_sensor);
-        global_monitor_destroy(gm);
+        action_manager_destroy(am);
         device_manager_destroy(dm);
         return -1;
     }
     
-    printf("[%ld.%06ld] 监视规则设置成功，规则ID=%d\n", tv.tv_sec, tv.tv_usec, rule_id);
-    printf("[%ld.%06ld] 成功加载规则: 当地址0x4的值为0x3时，将地址0x8的值设置为0x5\n", tv.tv_sec, tv.tv_usec);
+    printf("[%ld.%06ld] 温度传感器规则设置成功，规则ID=%d\n", tv.tv_sec, tv.tv_usec, rule_id);
+    printf("[%ld.%06ld] 成功加载规则: 当地址0x0的值为0x3时，将地址0x0的值设置为0x5\n", tv.tv_sec, tv.tv_usec);
     fflush(stdout);
     
     // 打印动作管理器的状态
-    if (gm->action_manager) {
+    if (am) {
         printf("[%ld.%06ld] 规则创建后动作管理器状态: rule_count=%d\n", 
-               tv.tv_sec, tv.tv_usec, gm->action_manager->rule_count);
+               tv.tv_sec, tv.tv_usec, am->rule_count);
         
         // 打印所有规则的信息
-        for (int i = 0; i < gm->action_manager->rule_count; i++) {
-            action_rule_t* rule = &gm->action_manager->rules[i];
+        for (int i = 0; i < am->rule_count; i++) {
+            action_rule_t* rule = &am->rules[i];
             printf("[%ld.%06ld] 规则 #%d: ID=%d, 名称=%s, 目标数量=%d\n", 
                    tv.tv_sec, tv.tv_usec, i, rule->rule_id, 
                    rule->name ? rule->name : "未命名", rule->targets.count);
@@ -194,153 +212,165 @@ int test_temp_sensor_rule_config() {
                        t->target_addr, t->target_value);
             }
         }
-    }
-    fflush(stdout);
-    
-    // 读取寄存器初始值
-    uint32_t value;
-    gettimeofday(&tv, NULL);
-    printf("[%ld.%06ld] 开始读取寄存器初始值\n", tv.tv_sec, tv.tv_usec);
-    fflush(stdout);
-    
-    if (device_memory_read(memory, 0x4, &value) == 0) {
-        printf("[%ld.%06ld] 寄存器0x4的初始值: 0x%08X\n", tv.tv_sec, tv.tv_usec, value);
     } else {
-        printf("[%ld.%06ld] 读取寄存器0x4失败\n", tv.tv_sec, tv.tv_usec);
-    }
-    
-    if (device_memory_read(memory, 0x8, &value) == 0) {
-        printf("[%ld.%06ld] 寄存器0x8的初始值: 0x%08X\n", tv.tv_sec, tv.tv_usec, value);
-    } else {
-        printf("[%ld.%06ld] 读取寄存器0x8失败\n", tv.tv_sec, tv.tv_usec);
+        printf("[%ld.%06ld] 警告: 动作管理器为NULL\n", tv.tv_sec, tv.tv_usec);
     }
     fflush(stdout);
     
-    // 写入触发值，应该自动触发规则
-    gettimeofday(&tv, NULL);
-    printf("[%ld.%06ld] 开始写入触发值0x3到寄存器0x4...\n", tv.tv_sec, tv.tv_usec);
-    fflush(stdout);
-    
+    // 测试触发条件
     struct timeval write_start, write_end;
     gettimeofday(&write_start, NULL);
-    
-    if (device_memory_write(memory, 0x4, 0x3) != 0) {
-        gettimeofday(&tv, NULL);
-        printf("[%ld.%06ld] 写入寄存器0x4失败\n", tv.tv_sec, tv.tv_usec);
-        fflush(stdout);
-    } else {
-        gettimeofday(&write_end, NULL);
-        double elapsed = (write_end.tv_sec - write_start.tv_sec) + 
-                        (write_end.tv_usec - write_start.tv_usec) / 1000000.0;
-        
-        printf("[%ld.%06ld] 写入寄存器0x4成功，耗时 %.6f 秒\n", 
-              write_end.tv_sec, write_end.tv_usec, elapsed);
-        fflush(stdout);
-    }
-    
-    // 读取寄存器值，检查规则是否被触发
-    gettimeofday(&tv, NULL);
-    printf("[%ld.%06ld] 写入完成后检查规则是否触发\n", tv.tv_sec, tv.tv_usec);
+    printf("[%ld.%06ld] 开始写入触发值\n", write_start.tv_sec, write_start.tv_usec);
     fflush(stdout);
-    
-    // 读取触发寄存器的当前值
-    if (device_memory_read(memory, 0x4, &value) == 0) {
-        printf("[%ld.%06ld] 写入后寄存器0x4的值: 0x%08X\n", tv.tv_sec, tv.tv_usec, value);
-    } else {
-        printf("[%ld.%06ld] 读取寄存器0x4失败\n", tv.tv_sec, tv.tv_usec);
+
+    // 检查温度传感器内存的有效性
+    ts_dev = (temp_sensor_device_t*)temp_sensor->priv_data;
+    if (!ts_dev) {
+        printf("[%ld.%06ld] 错误: 温度传感器私有数据为NULL\n", write_start.tv_sec, write_start.tv_usec);
+        goto cleanup;
     }
-    fflush(stdout);
-    
-    // 读取目标寄存器的当前值
-    if (device_memory_read(memory, 0x8, &value) == 0) {
-        printf("[%ld.%06ld] 规则执行后寄存器0x8的值: 0x%08X\n", tv.tv_sec, tv.tv_usec, value);
-        if (value == 0x5) {
-            printf("[%ld.%06ld] 规则自动触发成功!\n", tv.tv_sec, tv.tv_usec);
-        } else {
-            printf("[%ld.%06ld] 规则未自动触发，寄存器0x8的值不是预期的0x5\n", tv.tv_sec, tv.tv_usec);
-            printf("[%ld.%06ld] 详细分析失败原因:\n", tv.tv_sec, tv.tv_usec);
+
+    if (!ts_dev->memory) {
+        printf("[%ld.%06ld] 错误: 温度传感器内存为NULL\n", write_start.tv_sec, write_start.tv_usec);
+        goto cleanup;
+    }
+
+    // 详细打印内存区域信息
+    printf("[%ld.%06ld] 内存区域检查: 区域数量=%d\n", write_start.tv_sec, write_start.tv_usec, ts_dev->memory->region_count);
+    if (ts_dev->memory->region_count > 0) {
+        for (int i = 0; i < ts_dev->memory->region_count; i++) {
+            printf("[%ld.%06ld] 区域[%d]: 基址=0x%08X, 单位大小=%zu, 长度=%zu, 数据指针=%p\n",
+                   write_start.tv_sec, write_start.tv_usec, i,
+                   ts_dev->memory->regions[i].base_addr,
+                   ts_dev->memory->regions[i].unit_size,
+                   ts_dev->memory->regions[i].length,
+                   ts_dev->memory->regions[i].data);
             
-            // 打印全局监视器的状态
-            printf("[%ld.%06ld] 全局监视器信息: device_manager=%p, action_manager=%p\n", 
-                   tv.tv_sec, tv.tv_usec, (void*)gm->device_manager, (void*)gm->action_manager);
-            
-            if (gm->action_manager) {
-                printf("[%ld.%06ld] 动作管理器状态: rule_count=%d\n", 
-                       tv.tv_sec, tv.tv_usec, gm->action_manager->rule_count);
+            // 尝试直接从内存读取，而不是通过device_read
+            if (ts_dev->memory->regions[i].data) {
+                printf("[%ld.%06ld] 尝试直接从内存读取区域[%d]的前几个值:\n", 
+                       write_start.tv_sec, write_start.tv_usec, i);
                 
-                // 打印所有规则的状态
-                for (int i = 0; i < gm->action_manager->rule_count; i++) {
-                    action_rule_t* rule = &gm->action_manager->rules[i];
-                    printf("[%ld.%06ld] 规则 #%d: ID=%d, 名称=%s, 目标数量=%d\n", 
-                           tv.tv_sec, tv.tv_usec, i, rule->rule_id, 
-                           rule->name ? rule->name : "未命名", rule->targets.count);
+                for (uint32_t offset = 0; offset < 16; offset += 4) {
+                    uint32_t value = 0;
+                    uint8_t* ptr = ts_dev->memory->regions[i].data + offset;
+                    memcpy(&value, ptr, sizeof(uint32_t));
+                    printf("[%ld.%06ld]   偏移 0x%02X (地址 0x%08X): 0x%08X\n", 
+                           write_start.tv_sec, write_start.tv_usec, 
+                           offset, ts_dev->memory->regions[i].base_addr + offset, value);
                 }
             }
-            
-            // 检查监视点是否正确设置
-            printf("[%ld.%06ld] 打印监视点信息:\n", tv.tv_sec, tv.tv_usec);
-            int watch_count = 0;
-            if (gm->watches) {
-                for (int i = 0; i < gm->watch_count; i++) {
-                    watch_point_t* wp = &gm->watches[i];
-                    if (wp->device_type == DEVICE_TYPE_TEMP_SENSOR && wp->device_id == 0) {
-                        watch_count++;
-                        printf("[%ld.%06ld] 监视点 #%d: 设备类型=%d, 设备ID=%d, 地址=0x%08X, 期望值=0x%08X, 掩码=0x%08X, 规则ID=%d\n", 
-                               tv.tv_sec, tv.tv_usec, i, wp->device_type, wp->device_id, 
-                               wp->address, wp->expected_value, wp->mask, wp->rule_id);
-                    }
-                }
-                printf("[%ld.%06ld] 找到 %d 个匹配的监视点\n", tv.tv_sec, tv.tv_usec, watch_count);
-            } else {
-                printf("[%ld.%06ld] 警告: 全局监视器中没有监视点\n", tv.tv_sec, tv.tv_usec);
-            }
-            
-            // 检查 memory_access_record 函数是否正常工作
-            printf("[%ld.%06ld] memory_access_record 可能未正常工作，已在 device_memory_write 中暂时跳过该调用\n", 
-                   tv.tv_sec, tv.tv_usec);
-            
-            // 直接写入目标值，验证设备内存功能是否正常
-            printf("[%ld.%06ld] 尝试直接写入目标值 0x5 到寄存器 0x8\n", tv.tv_sec, tv.tv_usec);
-            fflush(stdout);
-            
-            if (device_memory_write(memory, 0x8, 0x5) != 0) {
-                printf("[%ld.%06ld] 直接写入寄存器0x8失败\n", tv.tv_sec, tv.tv_usec);
-            } else {
-                printf("[%ld.%06ld] 直接写入寄存器0x8成功\n", tv.tv_sec, tv.tv_usec);
-                
-                // 验证写入是否成功
-                uint32_t verify_value;
-                if (device_memory_read(memory, 0x8, &verify_value) == 0) {
-                    printf("[%ld.%06ld] 验证寄存器0x8的值: 0x%08X", tv.tv_sec, tv.tv_usec, verify_value);
-                    if (verify_value == 0x5) {
-                        printf(" - 写入验证成功\n");
-                    } else {
-                        printf(" - 写入验证失败\n");
-                    }
-                } else {
-                    printf("[%ld.%06ld] 验证寄存器0x8时读取失败\n", tv.tv_sec, tv.tv_usec);
-                }
-            }
-            fflush(stdout);
         }
+    }
+
+    // 尝试直接使用内存函数而不是设备函数
+    uint32_t test_value = 0;
+    int mem_read_result = device_memory_read(ts_dev->memory, 0x0, &test_value);
+    printf("[%ld.%06ld] 直接内存读取结果: 地址=0x0, 值=0x%08X, 返回=%d\n", 
+           write_start.tv_sec, write_start.tv_usec, test_value, mem_read_result);
+    
+    // 写入测试值
+    int mem_write_result = device_memory_write(ts_dev->memory, 0x0, 0x3);
+    printf("[%ld.%06ld] 直接内存写入结果: 地址=0x0, 值=0x3, 返回=%d\n", 
+           write_start.tv_sec, write_start.tv_usec, mem_write_result);
+    
+    // 重新读取确认写入
+    if (mem_write_result == 0) {
+        test_value = 0;
+        mem_read_result = device_memory_read(ts_dev->memory, 0x0, &test_value);
+        printf("[%ld.%06ld] 写入后直接内存读取结果: 地址=0x0, 值=0x%08X, 返回=%d\n", 
+               write_start.tv_sec, write_start.tv_usec, test_value, mem_read_result);
+    }
+
+    // 获取写入前的寄存器状态
+    uint32_t before_trigger_value = 0;
+    int read_result = device_read(temp_sensor, 0x0, &before_trigger_value);
+    gettimeofday(&tv, NULL);
+    if (read_result != 0) {
+        printf("[%ld.%06ld] 读取目标寄存器(地址=0x0)的初始值失败: %d\n", 
+               tv.tv_sec, tv.tv_usec, read_result);
     } else {
-        printf("[%ld.%06ld] 读取寄存器0x8失败\n", tv.tv_sec, tv.tv_usec);
+        printf("[%ld.%06ld] 触发前目标寄存器(地址=0x0)的值: 0x%08X\n", 
+               tv.tv_sec, tv.tv_usec, before_trigger_value);
     }
     fflush(stdout);
     
+    // 写入触发值
+    int write_result = device_write(temp_sensor, 0x0, 0x3);
+    gettimeofday(&write_end, NULL);
+    
+    // 计算写入操作的耗时
+    long write_time_us = (write_end.tv_sec - write_start.tv_sec) * 1000000 + 
+                          (write_end.tv_usec - write_start.tv_usec);
+    
+    // 检查写入结果
+    if (write_result != 0) {
+        printf("[%ld.%06ld] 写入触发值(地址=0x0, 值=0x3)失败: %d\n", 
+               write_end.tv_sec, write_end.tv_usec, write_result);
+        goto cleanup;
+    } else {
+        printf("[%ld.%06ld] 写入触发值(地址=0x0, 值=0x3)成功，耗时: %ld 微秒\n", 
+               write_end.tv_sec, write_end.tv_usec, write_time_us);
+    }
+    
+    // 延迟一段时间，等待动作生效
+    usleep(10000);  // 休眠10毫秒
+    
+    // 检查动作是否已触发
+    uint32_t after_value = 0;
+    if (device_read(temp_sensor, 0x0, &after_value) != 0) {
+        printf("[%ld.%06ld] 读取目标寄存器(地址=0x0)的最终值失败\n", 
+               write_end.tv_sec, write_end.tv_usec);
+        goto cleanup;
+    }
+    
+    // 验证是否值被修改为预期的值
+    if (after_value == 0x5) {
+        printf("[%ld.%06ld] 测试成功! 目标寄存器值已被修改为0x%08X\n", 
+               write_end.tv_sec, write_end.tv_usec, after_value);
+    } else {
+        printf("[%ld.%06ld] 测试失败! 目标寄存器值未被修改，当前值为: 0x%08X\n", 
+               write_end.tv_sec, write_end.tv_usec, after_value);
+        goto cleanup;
+    }
+    
+cleanup:
     // 清理资源
     gettimeofday(&tv, NULL);
     printf("[%ld.%06ld] 开始清理资源\n", tv.tv_sec, tv.tv_usec);
     fflush(stdout);
     
-    device_destroy(dm, temp_sensor);
-    global_monitor_destroy(gm);
-    device_manager_destroy(dm);
+    // 销毁温度传感器设备
+    if (temp_sensor) {
+        device_destroy(dm, temp_sensor);
+    }
     
-    gettimeofday(&tv, NULL);
-    printf("[%ld.%06ld] 温度传感器规则配置测试完成\n", tv.tv_sec, tv.tv_usec);
-    fflush(stdout);
-    return 0;
+    // 销毁动作管理器
+    if (am) {
+        action_manager_destroy(am);
+    }
+    
+    // 销毁设备管理器
+    if (dm) {
+        device_manager_destroy(dm);
+    }
+    
+    // 计算测试总耗时
+    struct timeval end_time;
+    gettimeofday(&end_time, NULL);
+    
+    double elapsed = (end_time.tv_sec - tv.tv_sec) + 
+                    (end_time.tv_usec - tv.tv_usec) / 1000000.0;
+    
+    if (write_result == 0 && after_value == 0x5) {
+        printf("[%ld.%06ld] 测试成功，耗时: %.2f 秒\n", 
+               end_time.tv_sec, end_time.tv_usec, elapsed);
+        return 0;
+    } else {
+        printf("[%ld.%06ld] 测试失败，耗时: %.2f 秒\n", 
+               end_time.tv_sec, end_time.tv_usec, elapsed);
+        return -1;
+    }
 }
 
 int main() {

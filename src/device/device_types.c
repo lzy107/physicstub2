@@ -114,6 +114,7 @@ device_instance_t* device_create(device_manager_t* dm, device_type_id_t type_id,
     }
     
     instance->dev_id = dev_id;
+    instance->type_id = type_id;
     
     // 调用设备特定的初始化
     if (type->ops.init && type->ops.init(instance) != 0) {

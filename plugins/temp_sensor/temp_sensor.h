@@ -29,6 +29,9 @@
 #define TEMP_REG_REGION    0  // 寄存器区域索引
 #define TEMP_REGION_COUNT  1  // 内存区域总数
 
+// 最大设备规则数量
+#define MAX_DEVICE_RULES   8  // 支持最多8个规则
+
 // 温度传感器私有数据结构
 typedef struct {
     device_instance_t base;       // 基础设备实例
@@ -62,6 +65,9 @@ int temp_sensor_write_buffer(device_instance_t* instance, uint32_t addr, const u
 int temp_sensor_reset(device_instance_t* instance);
 struct device_rule_manager* temp_sensor_get_rule_manager(device_instance_t* instance);
 int temp_sensor_configure_memory(device_instance_t* instance, memory_region_config_t* configs, int config_count);
+
+// 获取温度传感器设备内存
+device_memory_t* temp_sensor_get_memory(device_instance_t* instance);
 
 // 回调函数
 void temp_alert_callback(void* context, uint32_t addr, uint32_t value);

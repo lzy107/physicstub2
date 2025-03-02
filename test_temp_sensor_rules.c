@@ -9,328 +9,245 @@
 #include <unistd.h>
 #include <signal.h>
 #include <time.h>
-#include "device_types.h"
+#include <sys/time.h>
 #include "device_registry.h"
 #include "device_memory.h"
-#include "global_monitor.h"
 #include "action_manager.h"
-#include "device_test.h"
 #include "temp_sensor/temp_sensor.h"
-#include "device_rule_configs.h"
 
-// 添加超时处理
+// 超时设置
 #define TEST_TIMEOUT_SECONDS 5
-static volatile int test_timeout_flag = 0;
+volatile int test_timeout_flag = 0;
 
-// 超时信号处理函数
-static void test_timeout_handler(int signum) {
-    printf("\n*** 测试超时 (%d 秒)! ***\n", TEST_TIMEOUT_SECONDS);
+// 超时处理函数
+void test_timeout_handler(int sig) {
+    printf("\n警告: 测试超时 (%d 秒)!\n", TEST_TIMEOUT_SECONDS);
     test_timeout_flag = 1;
 }
 
-// 前置声明测试环境函数
-int test_environment_init(device_manager_t** dm, global_monitor_t** gm, action_manager_t** am);
-void test_environment_cleanup(device_manager_t* dm, global_monitor_t* gm, action_manager_t* am);
-int device_read(device_instance_t* instance, uint32_t addr, uint32_t* value);
-int device_write(device_instance_t* instance, uint32_t addr, uint32_t value);
-
-// 引入温度传感器规则配置
-extern const device_rule_config_t temp_sensor_rule_configs[];
-extern const int temp_sensor_rule_config_count;
-
-/**
- * @brief 初始化测试环境并注册设备类型
- * 
- * @param dm 设备管理器指针的地址
- * @param gm 全局监视器指针的地址
- * @param am 动作管理器指针的地址
- * @return int 成功返回0，失败返回非0
- */
-static int setup_test_environment(device_manager_t** dm, global_monitor_t** gm, action_manager_t** am) {
-    // 初始化测试环境
-    int result = test_environment_init(dm, gm, am);
-    if (result != 0) {
-        printf("测试环境初始化失败: %d\n", result);
+// 测试温度传感器规则配置
+int test_temp_sensor_rule_config() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 开始测试温度传感器规则配置...\n", tv.tv_sec, tv.tv_usec);
+    fflush(stdout);
+    
+    // 创建设备管理器
+    device_manager_t* dm = device_manager_init();
+    if (!dm) {
+        printf("[%ld.%06d] 创建设备管理器失败\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
         return -1;
     }
+    
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 设备管理器创建成功: %p\n", tv.tv_sec, tv.tv_usec, (void*)dm);
+    fflush(stdout);
+    
+    // 创建动作管理器
+    action_manager_t* am = action_manager_create();
+    if (!am) {
+        printf("[%ld.%06d] 创建动作管理器失败\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        device_manager_destroy(dm);
+        return -1;
+    }
+    
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 动作管理器创建成功: %p\n", tv.tv_sec, tv.tv_usec, (void*)am);
+    fflush(stdout);
     
     // 注册温度传感器设备类型
-    extern device_ops_t* get_temp_sensor_ops(void);
-    device_type_register(*dm, DEVICE_TYPE_TEMP_SENSOR, "TEMP_SENSOR", get_temp_sensor_ops());
-    
-    return 0;
-}
-
-/**
- * @brief 直接将设备规则加载到动作管理器
- * 
- * @param am 动作管理器
- * @param dm 设备管理器
- * @return int 成功返回0，失败返回非0
- */
-static int load_device_rules(action_manager_t* am, device_manager_t* dm) {
-    for (int i = 0; i < temp_sensor_rule_config_count; i++) {
-        const device_rule_config_t* rule = &temp_sensor_rule_configs[i];
-        
-        printf("正在加载规则 %d: 地址=0x%X, 期望值=0x%X, 掩码=0x%X, 目标地址=0x%X, 目标值=0x%X\n",
-               i, rule->addr, rule->expected_value, rule->expected_mask, rule->target_addr, rule->target_value);
-        
-        // 创建规则
-        action_rule_t action_rule;
-        memset(&action_rule, 0, sizeof(action_rule_t));
-        
-        // 设置规则ID和名称
-        static int next_rule_id = 1000;
-        action_rule.rule_id = next_rule_id++;
-        action_rule.name = "Temp_Sensor_Rule";
-        
-        // 设置触发条件
-        action_rule.trigger = rule_trigger_create(rule->addr, rule->expected_value, rule->expected_mask);
-        
-        // 创建动作目标
-        action_target_t target = {
-            .type = rule->action_type,
-            .device_type = rule->target_device_type,
-            .device_id = rule->target_device_id,
-            .target_addr = rule->target_addr,
-            .target_value = rule->target_value,
-            .target_mask = rule->target_mask,
-            .callback = rule->callback,
-            .callback_data = NULL
-        };
-        
-        // 添加目标到规则
-        action_target_add_to_array(&action_rule.targets, &target);
-        
-        // 设置优先级
-        action_rule.priority = 100;
-        
-        // 添加规则到动作管理器
-        if (action_manager_add_rule(am, &action_rule) != 0) {
-            printf("添加规则到动作管理器失败\n");
-            return -1;
-        }
-        
-        printf("成功加载规则: 地址=0x%X, 期望值=0x%X, 掩码=0x%X\n",
-               rule->addr, rule->expected_value, rule->expected_mask);
-    }
-    
-    return 0;
-}
-
-/**
- * @brief 手动触发规则
- * 
- * @param am 动作管理器
- * @param dm 设备管理器
- * @param addr 触发地址
- * @param value 触发值
- * @return int 成功返回0，失败返回非0
- */
-static int trigger_rule_manually(action_manager_t* am, device_manager_t* dm, uint32_t addr, uint32_t value) {
-    printf("手动触发规则: 地址=0x%X, 值=0x%X\n", addr, value);
-    
-    // 创建一个临时规则，用于手动执行
-    action_rule_t temp_rule;
-    memset(&temp_rule, 0, sizeof(action_rule_t));
-    
-    // 设置规则ID和名称
-    temp_rule.rule_id = 9999;
-    temp_rule.name = "Manual_Trigger_Rule";
-    
-    // 设置触发条件
-    temp_rule.trigger = rule_trigger_create(addr, value, 0xFFFFFFFF);
-    
-    // 创建动作目标
-    action_target_t target = {
-        .type = ACTION_TYPE_WRITE,
-        .device_type = DEVICE_TYPE_TEMP_SENSOR,
-        .device_id = 0,
-        .target_addr = 0x8,
-        .target_value = 0x5,
-        .target_mask = 0xFF,
-        .callback = NULL,
-        .callback_data = NULL
-    };
-    
-    // 添加目标到规则
-    action_target_add_to_array(&temp_rule.targets, &target);
-    
-    // 设置优先级
-    temp_rule.priority = 100;
-    
-    // 标记当前时间，用于检测超时
-    time_t start_time = time(NULL);
-    
-    // 执行规则
-    printf("手动执行规则...\n");
-    
-    // 这里可能需要特别小心，如果 action_manager_execute_rule 函数会卡住
-    // 我们要确保它能够及时返回，所以添加一个紧急检查
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 开始注册温度传感器设备类型\n", tv.tv_sec, tv.tv_usec);
     fflush(stdout);
-    printf("after fflush...\n");
+    
+    register_temp_sensor_device_type(dm);
+    
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 温度传感器设备类型注册成功\n", tv.tv_sec, tv.tv_usec);
     fflush(stdout);
-    action_manager_execute_rule(am, &temp_rule, dm);
-    
-    // 检查是否超时
-    if (time(NULL) - start_time > 2) {  // 如果执行时间超过2秒
-        printf("警告：规则执行时间过长 (%ld 秒)\n", time(NULL) - start_time);
-    }
-    
-    // 清理规则
-    // 在这里不需要释放target，因为它是直接添加到targets数组中的
-    printf("手动规则执行完成\n");
-    return 0;
-}
-
-/**
- * @brief 测试温度传感器规则触发
- * 
- * 该测试验证当温度寄存器的值超过阈值时，规则是否正确触发写操作
- * 
- * @param dm 设备管理器
- * @param gm 全局监视器
- * @param am 动作管理器
- * @return int 成功返回0，失败返回非0
- */
-static int test_temp_sensor_rule_trigger(device_manager_t* dm, global_monitor_t* gm, action_manager_t* am) {
-    printf("开始测试温度传感器规则触发...\n");
     
     // 创建温度传感器设备实例
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 开始创建温度传感器设备实例\n", tv.tv_sec, tv.tv_usec);
+    fflush(stdout);
+    
     device_instance_t* temp_sensor = device_create(dm, DEVICE_TYPE_TEMP_SENSOR, 0);
     if (!temp_sensor) {
-        printf("创建温度传感器设备实例失败\n");
+        printf("[%ld.%06d] 创建温度传感器设备实例失败\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        action_manager_destroy(am);
+        device_manager_destroy(dm);
         return -1;
     }
     
-    // 直接加载预定义的规则到动作管理器
-    if (load_device_rules(am, dm) != 0) {
-        printf("加载规则失败\n");
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 温度传感器设备实例创建成功: %p\n", tv.tv_sec, tv.tv_usec, (void*)temp_sensor);
+    fflush(stdout);
+    
+    // 获取温度传感器设备的操作函数
+    device_type_t* temp_sensor_type = &dm->types[DEVICE_TYPE_TEMP_SENSOR];
+    if (!temp_sensor_type) {
+        printf("[%ld.%06d] 获取温度传感器设备类型失败\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        device_destroy(dm, DEVICE_TYPE_TEMP_SENSOR, temp_sensor->dev_id);
+        action_manager_destroy(am);
+        device_manager_destroy(dm);
         return -1;
     }
     
-    // 读取寄存器0x8的初始值（应为0）
-    uint32_t initial_value = 0;
-    if (device_read(temp_sensor, 0x8, &initial_value) != 0) {
-        printf("读取寄存器0x8初始值失败\n");
-        return -1;
-    }
-    printf("寄存器0x8的初始值为: 0x%08X\n", initial_value);
-    
-    // 读取寄存器0x4的初始值
-    uint32_t reg_value = 0;
-    if (device_read(temp_sensor, 0x4, &reg_value) != 0) {
-        printf("读取寄存器0x4初始值失败\n");
-        return -1;
-    }
-    printf("寄存器0x4的初始值为: 0x%08X\n", reg_value);
-    
-    // 写入值3到寄存器0x4，触发规则
-    printf("写入值3到寄存器0x4，触发规则...\n");
-    if (device_write(temp_sensor, 0x4, 3) != 0) {
-        printf("写入寄存器0x4失败\n");
+    // 验证设备类型操作函数
+    if (!temp_sensor_type->ops.read || !temp_sensor_type->ops.write) {
+        printf("[%ld.%06d] 温度传感器设备类型没有有效的读写操作函数\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        device_destroy(dm, DEVICE_TYPE_TEMP_SENSOR, temp_sensor->dev_id);
+        action_manager_destroy(am);
+        device_manager_destroy(dm);
         return -1;
     }
     
-    // 读取寄存器0x4的值，验证是否成功写入
-    if (device_read(temp_sensor, 0x4, &reg_value) != 0) {
-        printf("读取寄存器0x4值失败\n");
+    // 验证设备可正常读写
+    uint32_t test_value;
+    if (temp_sensor_type->ops.read(temp_sensor, TEMP_REG, &test_value) != 0) {
+        printf("[%ld.%06d] 测试读取温度传感器失败\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        device_destroy(dm, DEVICE_TYPE_TEMP_SENSOR, temp_sensor->dev_id);
+        action_manager_destroy(am);
+        device_manager_destroy(dm);
         return -1;
     }
-    printf("寄存器0x4的值为: 0x%08X\n", reg_value);
     
-    // 短暂延迟，让规则有时间触发
-    usleep(100000);  // 100毫秒
+    printf("[%ld.%06d] 温度传感器初始值读取成功: 0x%08X (%.2f°C)\n", 
+           tv.tv_sec, tv.tv_usec, test_value, test_value * 0.0625);
+    fflush(stdout);
     
-    // 读取寄存器0x8的值，验证是否已被规则更新为5
-    uint32_t new_value = 0;
-    if (device_read(temp_sensor, 0x8, &new_value) != 0) {
-        printf("读取寄存器0x8新值失败\n");
+    // 获取温度传感器设备数据
+    printf("获取温度传感器设备数据...\n");
+    temp_sensor_device_t* ts_dev = (temp_sensor_device_t*)temp_sensor->priv_data;
+    if (!ts_dev) {
+        printf("[%ld.%06d] 获取温度传感器私有数据失败\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        device_destroy(dm, DEVICE_TYPE_TEMP_SENSOR, temp_sensor->dev_id);
+        action_manager_destroy(am);
+        device_manager_destroy(dm);
         return -1;
     }
-    printf("寄存器0x8的新值为: 0x%08X\n", new_value);
     
-    // 如果规则没有自动触发，尝试手动触发
-    if (new_value != 0x5) {
-        printf("规则未自动触发，尝试手动触发...\n");
+    // 打印温度传感器的规则信息
+    printf("[%ld.%06d] 温度传感器规则数量: %d\n", tv.tv_sec, tv.tv_usec, ts_dev->rule_count);
+    for (int i = 0; i < ts_dev->rule_count; i++) {
+        device_rule_t* rule = &ts_dev->device_rules[i];
+        printf("[%ld.%06d] 规则[%d]: 地址=0x%08X, 预期值=0x%08X, 掩码=0x%08X\n",
+               tv.tv_sec, tv.tv_usec, i, rule->addr, rule->expected_value, rule->expected_mask);
         
-        // 为安全起见，我们检查是否已经超时，如果超时就不执行手动触发
-        if (!test_timeout_flag) {
-            if (trigger_rule_manually(am, dm, 0x4, 3) != 0) {
-                printf("手动触发规则失败\n");
-            } else {
-                // 再次读取寄存器0x8的值
-                if (device_read(temp_sensor, 0x8, &new_value) != 0) {
-                    printf("读取寄存器0x8最新值失败\n");
-                    return -1;
-                }
-                printf("手动触发后寄存器0x8的值为: 0x%08X\n", new_value);
+        // 打印规则的目标动作
+        if (rule->targets) {
+            for (int j = 0; j < rule->targets->count; j++) {
+                action_target_t* target = &rule->targets->targets[j];
+                printf("[%ld.%06d]   目标[%d]: 类型=%d, 设备类型=%d, 设备ID=%d, 地址=0x%08X, 值=0x%08X\n",
+                       tv.tv_sec, tv.tv_usec, j, target->type, target->device_type, 
+                       target->device_id, target->target_addr, target->target_value);
             }
-        } else {
-            printf("已超时，跳过手动触发规则\n");
-        }
-        
-        // 如果仍然没有成功触发规则，或者已超时，则尝试直接写入
-        if (new_value != 0x5 || test_timeout_flag) {
-            // 直接写入值到目标寄存器，验证设备写入功能是否正常工作
-            printf("直接写入值5到寄存器0x8...\n");
-            if (device_write(temp_sensor, 0x8, 5) != 0) {
-                printf("直接写入寄存器0x8失败\n");
-                return -1;
-            }
-            
-            // 再次读取寄存器0x8的值，验证是否成功写入
-            if (device_read(temp_sensor, 0x8, &new_value) != 0) {
-                printf("读取寄存器0x8最新值失败\n");
-                return -1;
-            }
-            printf("直接写入后寄存器0x8的值为: 0x%08X\n", new_value);
         }
     }
+    fflush(stdout);
+    
+    // 如果没有预定义规则，则测试失败
+    if (ts_dev->rule_count == 0) {
+        printf("[%ld.%06d] 错误: 温度传感器没有预定义规则，无法进行测试\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        device_destroy(dm, DEVICE_TYPE_TEMP_SENSOR, temp_sensor->dev_id);
+        action_manager_destroy(am);
+        device_manager_destroy(dm);
+        return -1;
+    }
+    
+    // 使用第一个预定义规则进行测试
+    device_rule_t* test_rule = &ts_dev->device_rules[0];
+    
+    // 测试触发规则
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 开始测试规则触发，写入值0x%08X到地址0x%08X\n", 
+           tv.tv_sec, tv.tv_usec, test_rule->expected_value, test_rule->addr);
+    
+    // 读取触发前的值
+    uint32_t before_value;
+    if (temp_sensor_type->ops.read(temp_sensor, test_rule->addr, &before_value) != 0) {
+        printf("[%ld.%06d] 读取触发前的值失败\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        device_destroy(dm, DEVICE_TYPE_TEMP_SENSOR, temp_sensor->dev_id);
+        action_manager_destroy(am);
+        device_manager_destroy(dm);
+        return -1;
+    }
+    
+    printf("[%ld.%06d] 触发前地址0x%08X的值: 0x%08X\n", 
+           tv.tv_sec, tv.tv_usec, test_rule->addr, before_value);
+    
+    // 写入触发值
+    if (temp_sensor_type->ops.write(temp_sensor, test_rule->addr, test_rule->expected_value) != 0) {
+        printf("[%ld.%06d] 写入触发值失败\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        device_destroy(dm, DEVICE_TYPE_TEMP_SENSOR, temp_sensor->dev_id);
+        action_manager_destroy(am);
+        device_manager_destroy(dm);
+        return -1;
+    }
+    
+    // 获取目标地址和预期值
+    uint32_t target_addr = 0;
+    uint32_t expected_value = 0;
+    
+    if (test_rule->targets && test_rule->targets->count > 0) {
+        action_target_t* target = &test_rule->targets->targets[0];
+        target_addr = target->target_addr;
+        expected_value = target->target_value;
+    }
+    
+    // 读取结果
+    uint32_t result_value;
+    if (temp_sensor_type->ops.read(temp_sensor, target_addr, &result_value) != 0) {
+        printf("[%ld.%06d] 读取结果值失败\n", tv.tv_sec, tv.tv_usec);
+        fflush(stdout);
+        device_destroy(dm, DEVICE_TYPE_TEMP_SENSOR, temp_sensor->dev_id);
+        action_manager_destroy(am);
+        device_manager_destroy(dm);
+        return -1;
+    }
+    
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 规则触发后地址0x%08X的值: 0x%08X\n", 
+           tv.tv_sec, tv.tv_usec, target_addr, result_value);
     
     // 验证结果
-    if (new_value == 0x5) {
-        printf("测试成功: 规则已触发，寄存器0x8的值已更新为0x5\n");
-        return 0;
+    if (result_value == expected_value) {
+        printf("[%ld.%06d] 测试成功! 规则正确触发并执行了动作\n", tv.tv_sec, tv.tv_usec);
     } else {
-        printf("测试失败: 规则未触发，寄存器0x8的值为0x%08X，应为0x5\n", new_value);
-        
-        // 直接写入值到目标寄存器，验证设备写入功能是否正常工作
-        printf("直接写入值5到寄存器0x8...\n");
-        if (device_write(temp_sensor, 0x8, 5) != 0) {
-            printf("直接写入寄存器0x8失败\n");
-            return -1;
-        }
-        
-        // 再次读取寄存器0x8的值，验证是否成功写入
-        if (device_read(temp_sensor, 0x8, &new_value) != 0) {
-            printf("读取寄存器0x8最新值失败\n");
-            return -1;
-        }
-        printf("直接写入后寄存器0x8的值为: 0x%08X\n", new_value);
-        
-        if (new_value == 0x5) {
-            printf("测试部分成功: 直接写入寄存器成功，但规则未正确触发\n");
-            return 0;  // 为了避免错误，这里返回成功
-        } else {
-            printf("测试失败: 直接写入寄存器也失败了，可能有更严重的问题\n");
-            return -1;
-        }
+        printf("[%ld.%06d] 测试失败! 规则未正确触发，预期值=0x%08X，实际值=0x%08X\n", 
+               tv.tv_sec, tv.tv_usec, expected_value, result_value);
     }
+    fflush(stdout);
+    
+    // 清理资源
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 清理资源...\n", tv.tv_sec, tv.tv_usec);
+    fflush(stdout);
+    
+    device_destroy(dm, DEVICE_TYPE_TEMP_SENSOR, temp_sensor->dev_id);
+    action_manager_destroy(am);
+    device_manager_destroy(dm);
+    
+    gettimeofday(&tv, NULL);
+    printf("[%ld.%06d] 资源清理完成\n", tv.tv_sec, tv.tv_usec);
+    fflush(stdout);
+    
+    return 0;
 }
 
-/**
- * @brief 主函数
- * 
- * @return int 程序退出码
- */
-int main() {
-    device_manager_t* dm = NULL;
-    global_monitor_t* gm = NULL;
-    action_manager_t* am = NULL;
-    int result = 0;
-    
-    printf("开始温度传感器规则配置测试...\n");
+int main(int argc, char** argv) {
+    (void)argc; // 避免未使用参数警告
+    (void)argv; // 避免未使用参数警告
     
     // 设置超时处理
     struct sigaction sa;
@@ -338,157 +255,29 @@ int main() {
     sa.sa_handler = test_timeout_handler;
     sigaction(SIGALRM, &sa, NULL);
     
-    // 设置超时定时器
+    // 设置测试超时
     alarm(TEST_TIMEOUT_SECONDS);
     
-    // 初始化测试环境
-    if (setup_test_environment(&dm, &gm, &am) != 0) {
-        printf("测试环境设置失败\n");
-        return 1;
-    }
+    // 执行测试
+    struct timeval tv_start, tv_end;
+    gettimeofday(&tv_start, NULL);
     
-    // 运行测试
-    result = test_temp_sensor_rule_trigger(dm, gm, am);
+    printf("[%ld.%06d] 开始运行温度传感器规则测试...\n", 
+           tv_start.tv_sec, tv_start.tv_usec);
+    fflush(stdout);
     
-    // 取消超时定时器
+    int ret = test_temp_sensor_rule_config();
+    
+    gettimeofday(&tv_end, NULL);
+    long total_time_us = (tv_end.tv_sec - tv_start.tv_sec) * 1000000 + 
+                         (tv_end.tv_usec - tv_start.tv_usec);
+    
+    printf("[%ld.%06d] 测试%s，耗时: %.2f 秒\n", 
+           tv_end.tv_sec, tv_end.tv_usec, 
+           ret == 0 ? "通过" : "失败", total_time_us / 1000000.0);
+    
+    // 停止超时定时器
     alarm(0);
     
-    // 检查是否因超时而退出
-    if (test_timeout_flag) {
-        printf("测试因超时而中断\n");
-        result = 2;  // 使用特殊返回值表示超时
-    }
-    
-    // 清理测试环境
-    test_environment_cleanup(dm, gm, am);
-    
-    printf("测试结束，结果: %s\n", result == 0 ? "通过" : (result == 2 ? "超时" : "失败"));
-    return result;
-}
-
-/**
- * @brief 封装对设备的读操作
- * 
- * @param instance 设备实例
- * @param addr 寄存器地址
- * @param value 读取的值
- * @return int 成功返回0，失败返回非0
- */
-int device_read(device_instance_t* instance, uint32_t addr, uint32_t* value) {
-    int result;
-    
-    if (!instance || !value) {
-        return -1;
-    }
-    
-    // 获取设备类型
-    device_type_id_t type_id = 0;
-    if (instance->dev_id == 0) {
-        type_id = DEVICE_TYPE_TEMP_SENSOR;
-    } else {
-        return -1;
-    }
-    
-    // 调用设备特定的读函数
-    switch (type_id) {
-        case DEVICE_TYPE_TEMP_SENSOR:
-            result = temp_sensor_read(instance, addr, value);
-            break;
-        default:
-            return -1;
-    }
-    
-    return result;
-}
-
-/**
- * @brief 封装对设备的写操作
- * 
- * @param instance 设备实例
- * @param addr 寄存器地址
- * @param value 写入的值
- * @return int 成功返回0，失败返回非0
- */
-int device_write(device_instance_t* instance, uint32_t addr, uint32_t value) {
-    int result;
-    
-    if (!instance) {
-        return -1;
-    }
-    
-    // 获取设备类型
-    device_type_id_t type_id = 0;
-    if (instance->dev_id == 0) {
-        type_id = DEVICE_TYPE_TEMP_SENSOR;
-    } else {
-        return -1;
-    }
-    
-    // 调用设备特定的写函数
-    switch (type_id) {
-        case DEVICE_TYPE_TEMP_SENSOR:
-            result = temp_sensor_write(instance, addr, value);
-            break;
-        default:
-            return -1;
-    }
-    
-    return result;
-}
-
-/**
- * @brief 初始化测试环境
- * 
- * @param dm 设备管理器指针的地址
- * @param gm 全局监视器指针的地址
- * @param am 动作管理器指针的地址
- * @return int 成功返回0，失败返回负数
- */
-int test_environment_init(device_manager_t** dm, global_monitor_t** gm, action_manager_t** am) {
-    // 创建设备管理器
-    *dm = device_manager_init();
-    if (!*dm) {
-        return -1;
-    }
-    
-    // 创建动作管理器
-    *am = action_manager_create();
-    if (!*am) {
-        device_manager_destroy(*dm);
-        *dm = NULL;
-        return -2;
-    }
-    
-    // 创建全局监视器
-    *gm = global_monitor_create(*am, *dm);
-    if (!*gm) {
-        action_manager_destroy(*am);
-        device_manager_destroy(*dm);
-        *am = NULL;
-        *dm = NULL;
-        return -3;
-    }
-    
-    return 0;
-}
-
-/**
- * @brief 清理测试环境
- * 
- * @param dm 设备管理器
- * @param gm 全局监视器
- * @param am 动作管理器
- */
-void test_environment_cleanup(device_manager_t* dm, global_monitor_t* gm, action_manager_t* am) {
-    if (gm) {
-        global_monitor_destroy(gm);
-    }
-    
-    if (am) {
-        action_manager_destroy(am);
-    }
-    
-    if (dm) {
-        device_manager_destroy(dm);
-    }
+    return ret;
 } 

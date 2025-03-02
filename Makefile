@@ -26,8 +26,7 @@ DEVICE_SRC = $(DEVICE_DIR)/device_types.c \
              $(DEVICE_DIR)/device_registry.c
 
 # 监控源文件
-MONITOR_SRC = $(MONITOR_DIR)/global_monitor.c \
-              $(MONITOR_DIR)/action_manager.c \
+MONITOR_SRC = $(MONITOR_DIR)/action_manager.c \
               $(MONITOR_DIR)/device_rules.c \
               $(MONITOR_DIR)/device_rule_configs.c
 

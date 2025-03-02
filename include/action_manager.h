@@ -97,6 +97,12 @@ void rule_table_entry_destroy(rule_table_entry_t* entry);
 // 创建动作管理器
 action_manager_t* action_manager_create(void);
 
+// 获取动作管理器实例（单例模式）
+action_manager_t* action_manager_get_instance(void);
+
+// 设置动作管理器关联的设备管理器
+void action_manager_set_device_manager(action_manager_t* am, device_manager_t* dm);
+
 // 销毁动作管理器
 void action_manager_destroy(action_manager_t* am);
 
@@ -116,6 +122,6 @@ int action_manager_add_rule(action_manager_t* am, action_rule_t* rule);
 void action_manager_remove_rule(action_manager_t* am, int rule_id);
 
 // 执行规则
-void action_manager_execute_rule(action_manager_t* am, action_rule_t* rule, device_manager_t* dm);
+int action_manager_execute_rule(action_manager_t* am, action_rule_t* rule, device_manager_t* dm);
 
 #endif /* ACTION_MANAGER_H */
